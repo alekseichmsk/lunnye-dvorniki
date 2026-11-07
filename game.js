@@ -2131,6 +2131,10 @@ function finishBuy() {
           if (sceneApi) sceneApi.focusHand(side);
           render();
         },
+        animState() {
+          render();
+          return sceneApi ? sceneApi.animState() : null;
+        },
         fillHopper() {
           state.hopper.mass = 8;
           state.hopper.worth = 12;

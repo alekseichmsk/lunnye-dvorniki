@@ -342,7 +342,7 @@ export function biomeClean(dust, biome) {
 }
 
 export function cellValue(index) {
-  return 0.2 * BIOMES[cellBiome[index]].price * sparkleMul(index);
+  return 0.5 * BIOMES[cellBiome[index]].price * sparkleMul(index);
 }
 
 export function cleanAround(dust, pos, radius, budget) {

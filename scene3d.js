@@ -38,7 +38,6 @@ function flowerHash(i) {
 }
 
 const MODEL_FILES = [
-  "janitor",
   "tool_brush", "tool_broom", "tool_mop", "tool_vac", "tool_ind",
   "tool_turbo", "tool_cyclone", "tool_plasma", "tool_grav", "tool_comet", "tool_aurora",
   "ship", "lander", "rocket",
@@ -109,6 +108,15 @@ const TERRAIN_FRAG = `
     fragColor = vec4(colorOut, 1.0);
   }
 `;
+
+function upperBodyClip(clip) {
+  const tracks = clip.tracks.filter((track) => {
+    const bone = track.name.toLowerCase();
+    if (/hips|thigh|shin|foot|toe|root/.test(bone)) return false;
+    return /spine|neck|head|arm|hand|shoulder|finger|f_|thumb/.test(bone);
+  });
+  return new THREE.AnimationClip("SweepUpper", clip.duration, tracks);
+}
 
 function findNamed(root, name) {
   let found = null;
@@ -352,17 +360,43 @@ export async function createScene(canvas) {
   }
 
   const player = new THREE.Group();
-  const janitor = cloneModel("janitor");
-  // The visor sits on local -Z. A half turn makes that axis the way the body walks.
+  const sweeperGltf = await loader.loadAsync("assets/models/sweeper.glb");
+  const janitor = sweeperGltf.scene;
+  toSurface(janitor);
+  janitor.traverse((obj) => {
+    if (!obj.isSkinnedMesh || !obj.material) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of mats) mat.skinning = true;
+  });
+  faceLocal = measureFace(janitor, materialSlot(janitor, "visor", /skin/i));
   janitor.rotation.y = Math.PI;
   player.add(janitor);
   scene.add(player);
-  const legL = findNamed(janitor, "leg_l");
-  const legR = findNamed(janitor, "leg_r");
-  const armL = findNamed(janitor, "arm_l");
-  const armR = findNamed(janitor, "arm_r");
-  const hand = findNamed(janitor, "arm_r_glove") || armR || janitor;
-  curlFist(hand);
+  const hand = findNamed(janitor, "DEF-handR") || findNamed(janitor, "DEF-hand.R") || janitor;
+  const mixer = new THREE.AnimationMixer(janitor);
+  const byName = {};
+  for (const clip of sweeperGltf.animations) byName[clip.name] = clip;
+  const locoClips = {
+    idle: byName.Idle_Loop,
+    walk: byName.Walk_Loop,
+    run: byName.Jog_Fwd_Loop,
+  };
+  const locoActions = {};
+  for (const [name, clip] of Object.entries(locoClips)) {
+    const action = mixer.clipAction(clip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+    action.enabled = true;
+    action.play();
+    action.setEffectiveWeight(name === "idle" ? 1 : 0);
+    locoActions[name] = action;
+  }
+  let locoName = "idle";
+  const sweepAction = mixer.clipAction(upperBodyClip(byName.Sword_Attack));
+  sweepAction.setLoop(THREE.LoopRepeat, Infinity);
+  sweepAction.play();
+  sweepAction.setEffectiveWeight(0);
+  let sweepWeight = 0;
   let toolMesh = null;
   let toolId = "";
   let rideMesh = null;
@@ -653,9 +687,10 @@ export async function createScene(canvas) {
     timeDelta = Math.max(0.001, Math.min(0.05, frame.dt || 1 / 60));
     stateRiding = !!state.riding;
     const lean = Math.max(-0.18, Math.min(0.18, (state.turnRate || 0) * 0.08));
-    janitor.rotation.z = lean;
-    janitor.rotation.x = Math.min(0.12, (state.glide || 0) * 0.015);
-    poseArms(anim, frameStats.tool.id, frameCleaning, frameMoving, reduceMotion, state.glide || 0);
+    janitor.rotation.z = lean * 0.35;
+    janitor.rotation.x = 0;
+    janitor.position.y = stateRiding ? 0.55 : 0;
+    driveSweeper(frameCleaning, reduceMotion, state.glide || 0, anim);
     if (footShadow) {
       footShadow.position.set(pos.x, pos.y, pos.z);
       const n = Planet.up(pos);
@@ -800,6 +835,36 @@ export async function createScene(canvas) {
     return world.normalize().dot(_v.copy(forward).normalize());
   }
 
+  let lastMixerAnim = null;
+  function driveSweeper(cleaning, reduceMotion, glide, anim) {
+    const speed = Math.max(0, glide || 0);
+    let next = "idle";
+    let scale = 1;
+    if (!reduceMotion && speed > 2.6) {
+      next = "run";
+      scale = Math.max(0.7, Math.min(1.5, speed / 5.2));
+    } else if (!reduceMotion && speed > 0.22) {
+      next = "walk";
+      scale = Math.max(0.65, Math.min(1.4, speed / 1.15));
+    }
+    if (next !== locoName) {
+      const prev = locoActions[locoName];
+      const action = locoActions[next];
+      prev.fadeOut(0.25);
+      action.reset().setEffectiveWeight(1).fadeIn(0.25).play();
+      locoName = next;
+    }
+    locoActions[locoName].setEffectiveTimeScale(reduceMotion ? 0.35 : scale);
+    const targetSweep = cleaning && !reduceMotion ? 4 : 0;
+    sweepWeight += (targetSweep - sweepWeight) * (1 - Math.exp(-timeDelta / 0.25));
+    sweepAction.setEffectiveWeight(sweepWeight);
+    sweepAction.setEffectiveTimeScale(1);
+    if (lastMixerAnim == null) lastMixerAnim = anim;
+    const step = Math.max(0, Math.min(0.35, anim - lastMixerAnim));
+    lastMixerAnim = anim;
+    if (step > 0) mixer.update(step);
+  }
+
   function poseArms(time, toolId, cleaning, moving, reduceMotion, glide) {
     const motion = toolMotion(toolId);
     const acting = cleaning || moving;
@@ -889,6 +954,9 @@ export async function createScene(canvas) {
     },
     focusHand(side) {
       handView = side || null;
+    },
+    animState() {
+      return { loco: locoName, hand: hand.name, time: locoActions[locoName].time };
     },
   };
 }
@@ -995,7 +1063,7 @@ function seatTool(mesh) {
   const dir = head.clone().sub(tail);
   if (dir.lengthSq() < 1e-8) dir.set(0, -1, 0);
   dir.normalize();
-  mesh.quaternion.setFromUnitVectors(dir, new THREE.Vector3(0, -1, 0));
+  mesh.quaternion.setFromUnitVectors(dir, new THREE.Vector3(0, 1, 0));
   const parked = gripLocal.clone().applyQuaternion(mesh.quaternion);
   mesh.position.copy(parked).multiplyScalar(-1);
   mesh.userData.gripLocal = gripLocal;
