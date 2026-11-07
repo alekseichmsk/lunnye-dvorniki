@@ -368,8 +368,7 @@ export async function createScene(canvas) {
     const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
     for (const mat of mats) mat.skinning = true;
   });
-  faceLocal = measureFace(janitor, materialSlot(janitor, "visor", /skin/i));
-  janitor.rotation.y = Math.PI;
+  // The rig's face and the jog clip both point along local +Z, which is the player's movement axis.
   player.add(janitor);
   scene.add(player);
   const hand = findNamed(janitor, "DEF-handR") || findNamed(janitor, "DEF-hand.R") || janitor;
@@ -827,12 +826,66 @@ export async function createScene(canvas) {
     camera.updateMatrixWorld();
   }
 
+  function headForward(target) {
+    const head = findNamed(janitor, "DEF-head");
+    if (!head) return target.set(0, 0, 1);
+    head.updateWorldMatrix(true, false);
+    return target.set(0, 0, 1).applyQuaternion(head.getWorldQuaternion(_quat));
+  }
+
   function faceDot(forward) {
-    const world = faceLocal.clone().applyQuaternion(janitor.getWorldQuaternion(_quat));
+    const face = headForward(new THREE.Vector3());
     const radial = player.position.clone().normalize();
-    world.addScaledVector(radial, -world.dot(radial));
-    if (world.lengthSq() < 1e-8) return 0;
-    return world.normalize().dot(_v.copy(forward).normalize());
+    face.addScaledVector(radial, -face.dot(radial));
+    if (face.lengthSq() < 1e-8) return 0;
+    const wish = _v.set(forward.x, forward.y, forward.z).normalize();
+    return face.normalize().dot(wish);
+  }
+
+  function runFootForward() {
+    const foot = findNamed(janitor, "DEF-footR") || findNamed(janitor, "DEF-foot.R");
+    const run = locoActions.run;
+    if (!foot || !run) return 0;
+    const saved = mixer._actions.map((action) => ({
+      action,
+      time: action.time,
+      weight: action.getEffectiveWeight(),
+      enabled: action.enabled,
+    }));
+    const mixerTime = mixer.time;
+    for (const action of mixer._actions) action.setEffectiveWeight(0);
+    run.enabled = true;
+    run.setEffectiveWeight(1);
+    run.play();
+    const duration = run.getClip().duration;
+    const samples = [];
+    for (let i = 0; i <= 24; i++) {
+      run.time = (i / 24) * duration;
+      mixer.update(0);
+      foot.updateWorldMatrix(true, false);
+      const point = foot.getWorldPosition(new THREE.Vector3());
+      janitor.worldToLocal(point);
+      samples.push({ t: run.time, y: point.y, z: point.z });
+    }
+    mixer.time = mixerTime;
+    for (const item of saved) {
+      item.action.time = item.time;
+      item.action.enabled = item.enabled;
+      item.action.setEffectiveWeight(item.weight);
+    }
+    mixer.update(0);
+    let lowest = Infinity;
+    for (const sample of samples) lowest = Math.min(lowest, sample.y);
+    const planted = samples.filter((sample) => sample.y < lowest + 0.06);
+    if (planted.length < 2) return 0;
+    const first = planted[0];
+    const last = planted[planted.length - 1];
+    const dt = last.t - first.t;
+    if (Math.abs(dt) < 1e-4) return 0;
+    const footZ = (last.z - first.z) / dt;
+    // A planted foot slides backward. Travel is the opposite of that slide, along model +Z.
+    const travel = -footZ;
+    return travel > 0.2 ? 1 : travel < -0.2 ? -1 : 0;
   }
 
   let lastMixerAnim = null;
@@ -930,6 +983,7 @@ export async function createScene(canvas) {
     modelsLoaded: true,
     planetRadius: Planet.RADIUS,
     faceDot,
+    runFootForward,
     toolWorld() {
       if (!toolMesh) return { x: 0, y: 0, z: 0, px: 0, py: 0, pz: 0 };
       const p = toolMesh.getWorldPosition(new THREE.Vector3());

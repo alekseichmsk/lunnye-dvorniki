@@ -2090,6 +2090,9 @@ function finishBuy() {
           const forward = Planet.basis(state.pos, state.heading || 0).forward;
           return sceneApi ? sceneApi.faceDot(forward) : 0;
         },
+        runFootForward() {
+          return sceneApi ? sceneApi.runFootForward() : 0;
+        },
         camera() {
           return { yaw: state.camYawTo, pitch: state.camPitchTo, dist: state.camDistTo, shown: state.camYaw };
         },
@@ -2112,9 +2115,9 @@ function finishBuy() {
         toolId() { return TOOLS[state.tool].id; },
         flowerCount() { return sceneApi ? sceneApi.flowerCount() : 0; },
         pose(mode) {
-          frameMoving = mode === "walk" || mode === "sweep";
+          frameMoving = mode === "walk" || mode === "run" || mode === "sweep";
           frameCleaning = mode === "sweep";
-          state.glide = mode === "idle" ? 0 : 1.4;
+          state.glide = mode === "idle" ? 0 : mode === "run" ? 4.6 : 1.4;
           anim += 0.41;
           render();
           return mode;

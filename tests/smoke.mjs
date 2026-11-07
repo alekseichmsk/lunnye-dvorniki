@@ -204,8 +204,21 @@ async function main() {
     const models = await ev("window.__LUNAR.modelsLoaded === true");
     assert(models, "3D models did not load");
     await ev("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-    const facing = await ev("__LUNAR.testing.facing()");
-    assert(facing > 0.5, "character should face its movement, dot " + facing);
+    const facing = await ev(`
+      const modes = ["idle", "walk", "run", "sweep"];
+      const rows = [];
+      for (const mode of modes) {
+        __LUNAR.testing.pose(mode);
+        __LUNAR.tick(0.35);
+        __LUNAR.testing.pose(mode);
+        rows.push({ mode, face: __LUNAR.testing.facing() });
+      }
+      return { rows, foot: __LUNAR.testing.runFootForward() };
+    `);
+    for (const row of facing.rows) {
+      assert(row.face > 0.5, "head should face movement while " + row.mode + ", dot " + row.face);
+    }
+    assert(facing.foot > 0.5, "run clip feet should drive forward, sign " + facing.foot);
     const roses = await ev(`
       __LUNAR.testing.sow(18);
       return new Promise((resolve) => {
