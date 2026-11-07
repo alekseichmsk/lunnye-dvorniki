@@ -248,6 +248,12 @@ import * as Planet from "./planet.js";
     return Math.round(1600 * 1.7 ** level);
   }
 
+  const GARDEN_CAP = 15;
+
+  function gardenCost(level) {
+    return Math.round(850 * 1.62 ** level);
+  }
+
   function polishCost(level) {
     return Math.round(7000 * 1.88 ** level);
   }
@@ -277,7 +283,7 @@ import * as Planet from "./planet.js";
   }
 
   function payMul() {
-    return (1 + state.patches * 0.4) * (1 + state.shipLevel * 0.08);
+    return (1 + state.patches * 0.4) * (1 + state.shipLevel * 0.08) * (1 + (state.garden || 0) * 0.03);
   }
 
   function payout(base) {
@@ -332,6 +338,7 @@ import * as Planet from "./planet.js";
       backpackLevel: 0,
       speedLevel: 0,
       shipLevel: 0,
+      garden: 0,
       battery: 0,
       depotBought: 0,
       depotStock: 0,
@@ -427,7 +434,7 @@ import * as Planet from "./planet.js";
     sweeps.length = 0;
     rockets.length = 0;
     state.dust = Planet.createDust();
-    state.dust.stamp = 1;
+    state.dust.stamp = (Date.now() % 100000000) + 3;
     const sp = spawnPoint();
     state.pos = { x: sp.x, y: sp.y, z: sp.z };
     state.heading = 0.6;
@@ -787,8 +794,10 @@ import * as Planet from "./planet.js";
         const target = Planet.headingFromWish(state.pos, wish, state.heading);
         const delta = wrapAngle(target - (state.heading || 0));
         const maxTurn = 5.2 * dt;
-        state.heading = (state.heading || 0) + Math.max(-maxTurn, Math.min(maxTurn, delta));
-      }
+        const applied = Math.max(-maxTurn, Math.min(maxTurn, delta));
+        state.heading = (state.heading || 0) + applied;
+        state.turnRate = applied / Math.max(dt, 0.001);
+      } else state.turnRate = (state.turnRate || 0) * 0.8;
       const targetSpeed = wishMag * meters(frameStats.speed);
       const rate = wishMag > 0.02 ? 16 : 20;
       const glide = state.glide || 0;
@@ -962,6 +971,18 @@ function finishBuy() {
       finishBuy();
       return true;
     }
+    if (id === "garden") {
+      if (state.garden >= GARDEN_CAP) {
+        toast("Сад уже на всю поляну");
+        return false;
+      }
+      const cost = gardenCost(state.garden);
+      if (!spend(cost, "Сад")) return false;
+      state.garden += 1;
+      state.dust.stamp = (state.dust.stamp || 0) + 1;
+      finishBuy();
+      return true;
+    }
     if (id === "battery") {
       const cost = batteryCost(state.battery);
       if (!spend(cost, "Батареи")) return false;
@@ -1097,6 +1118,7 @@ function finishBuy() {
       backpackLevel: state.backpackLevel,
       speedLevel: state.speedLevel,
       shipLevel: state.shipLevel,
+      garden: state.garden || 0,
       battery: state.battery,
       depotBought: state.depotBought,
       depotStock: state.depotStock,
@@ -1199,6 +1221,7 @@ function finishBuy() {
     state.backpackLevel = int(data.backpackLevel, 0, 400);
     state.speedLevel = int(data.speedLevel, 0, 400);
     state.shipLevel = int(data.shipLevel, 0, 400);
+    state.garden = int(data.garden, 0, GARDEN_CAP);
     state.battery = int(data.battery, 0, 400);
     state.depotBought = int(data.depotBought, 0, DEPOT_CAP);
     state.depotStock = int(data.depotStock, 0, DEPOT_CAP);
@@ -1271,6 +1294,7 @@ function finishBuy() {
     state.backpackLevel = int(data.backpackLevel, 0, 400);
     state.speedLevel = int(data.speedLevel, 0, 400);
     state.shipLevel = int(data.shipLevel, 0, 400);
+    state.garden = int(data.garden, 0, GARDEN_CAP);
     state.battery = int(data.battery, 0, 400);
     state.depotBought = int(data.depotBought, 0, DEPOT_CAP);
     state.depotStock = int(data.depotStock, 0, DEPOT_CAP);
@@ -1400,8 +1424,9 @@ function finishBuy() {
     else hintEl.textContent = "В руках: " + TOOLS[state.tool].name;
 
     const canLaunch = state.nearDepot && state.hopper.worth > 0.05 && state.launchLock <= 0;
+    launchBtn.hidden = !(state.nearDepot && (state.hopper.worth > 0.05 || state.backpack.mass > 1));
     launchBtn.disabled = !canLaunch;
-    launchLabel.textContent = state.hopper.worth > 0.05 && !state.nearDepot ? "Рейс у корабля" : "Запустить рейс";
+    launchLabel.textContent = canLaunch ? "Запустить рейс" : "Сдать пыль";
 
     placeBtn.hidden = state.depotStock <= 0;
     placeBtn.textContent = "Поставить (" + state.depotStock + ")";
@@ -1448,8 +1473,13 @@ function finishBuy() {
     return `<div class="row"><div><strong>${esc(title)}</strong><p>${esc(text)}</p><em>${esc(meta)}</em></div>${buttonHtml}</div>`;
   }
 
-  function buyBtn(id, label, ok) {
-    return `<button type="button" data-buy="${esc(id)}" ${ok ? "" : "disabled"}>${esc(label)}</button>`;
+  function rowIcon(src, title, text, meta, buttonHtml) {
+    return `<div class="row rose-row"><img class="row-icon" src="${esc(src)}" alt=""><div><strong>${esc(title)}</strong><p>${esc(text)}</p><em>${esc(meta)}</em></div>${buttonHtml}</div>`;
+  }
+
+  function buyBtn(id, label, ok, cost) {
+    const text = ok || cost == null ? label : "ещё " + formatNumber(Math.max(0, cost - state.money));
+    return `<button type="button" class="buy ${ok ? "can" : "cannot"}" data-buy="${esc(id)}" ${ok ? "" : "disabled"}>${esc(text)}</button>`;
   }
 
   function badge(text) {
@@ -1496,7 +1526,7 @@ function finishBuy() {
       const meta = `радиус ${tool.radius} · сила ${formatNumber(tool.power * (1 + state.patches * 0.12))}`;
       if (i < state.tool) html += row(tool.name, tool.blurb, meta, badge("есть"));
       else if (i === state.tool) html += row(tool.name, tool.blurb, meta, badge("в руках"));
-      else if (i === state.tool + 1) html += row(tool.name, tool.blurb, meta, buyBtn("tool", formatNumber(tool.cost), canAfford(tool.cost)));
+      else if (i === state.tool + 1) html += row(tool.name, tool.blurb, meta, buyBtn("tool", formatNumber(tool.cost), canAfford(tool.cost), tool.cost));
       else html += row(tool.name, tool.blurb, meta, badge("потом"));
     }
     const pCost = polishCost(state.polish);
@@ -1504,7 +1534,7 @@ function finishBuy() {
       "Полировка",
       "Точит то, что уже в руках. Бесконечная лестница силы.",
       `сила ×${formatNumber(1.14 ** state.polish)} → ×${formatNumber(1.14 ** (state.polish + 1))}`,
-      buyBtn("polish", formatNumber(pCost), canAfford(pCost)),
+      buyBtn("polish", formatNumber(pCost), canAfford(pCost), pCost),
     );
     return html;
   }
@@ -1513,24 +1543,38 @@ function finishBuy() {
     const bCost = backpackCost(state.backpackLevel);
     const sCost = speedCost(state.speedLevel);
     const tCost = shipCost(state.shipLevel);
+    const gCost = gardenCost(state.garden);
+    const gardenFull = state.garden >= GARDEN_CAP;
+    const gardenBtn = gardenFull
+      ? badge("на всю")
+      : buyBtn("garden", formatNumber(gCost), canAfford(gCost), gCost);
     return [
+      rowIcon(
+        "assets/rose-icon.png",
+        "Сад",
+        "На чистой земле всходят розы. Чем выше сад, тем гуще цветки и щедрее рейс.",
+        gardenFull
+          ? `розы густо · оплата +${state.garden * 3}%`
+          : `оплата +${state.garden * 3}% → +${(state.garden + 1) * 3}%`,
+        gardenBtn,
+      ),
       row(
         "Рюкзак",
         "Больше пыли за одну ходку до корабля.",
         `вместимость ${formatNumber(capacityAt(state.backpackLevel))} → ${formatNumber(capacityAt(state.backpackLevel + 1))}`,
-        buyBtn("backpack", formatNumber(bCost), canAfford(bCost)),
+        buyBtn("backpack", formatNumber(bCost), canAfford(bCost), bCost),
       ),
       row(
         "Ботинки дворника",
         "Короче дорога с полным рюкзаком.",
         `шаг +${Math.round((1.072 ** state.speedLevel - 1) * 100)}% → +${Math.round((1.072 ** (state.speedLevel + 1) - 1) * 100)}%`,
-        buyBtn("speed", formatNumber(sCost), canAfford(sCost)),
+        buyBtn("speed", formatNumber(sCost), canAfford(sCost), sCost),
       ),
       row(
         "Тариф рейса",
         "Корабль платит щедрее за ту же пыль.",
         `оплата +${state.shipLevel * 8}% → +${(state.shipLevel + 1) * 8}%`,
-        buyBtn("ship", formatNumber(tCost), canAfford(tCost)),
+        buyBtn("ship", formatNumber(tCost), canAfford(tCost), tCost),
       ),
     ].join("");
   }
@@ -1605,7 +1649,10 @@ function finishBuy() {
       return canAfford(polishCost(state.polish));
     }
     if (id === "gear") {
-      return canAfford(backpackCost(state.backpackLevel)) || canAfford(speedCost(state.speedLevel)) || canAfford(shipCost(state.shipLevel));
+      return canAfford(backpackCost(state.backpackLevel))
+        || canAfford(speedCost(state.speedLevel))
+        || canAfford(shipCost(state.shipLevel))
+        || (state.garden < GARDEN_CAP && canAfford(gardenCost(state.garden)));
     }
     if (id === "tech") {
       if (state.depotBought < DEPOT_CAP && canAfford(depotPrice(state.depotBought))) return true;
@@ -1895,6 +1942,18 @@ function finishBuy() {
     addEventListener("blur", () => keys.clear());
 
     shopBtn.addEventListener("click", openShop);
+    $("menu-open").addEventListener("click", () => $("menu").classList.toggle("hidden"));
+    let buyQty = 1;
+    document.querySelectorAll("[data-qty]").forEach((button) => {
+      button.addEventListener("click", () => {
+        buyQty = button.dataset.qty === "max" ? 40 : Number(button.dataset.qty) || 1;
+        document.querySelectorAll("[data-qty]").forEach((other) => other.classList.toggle("on", other === button));
+      });
+    });
+    const grab = $("shop-grab");
+    let grabY = 0;
+    grab.addEventListener("pointerdown", (e) => { grabY = e.clientY; });
+    grab.addEventListener("pointerup", (e) => { if (e.clientY - grabY > 48) closeShop(); });
     $("shop-close").addEventListener("click", closeShop);
     shopEl.addEventListener("click", (e) => {
       if (e.target === shopEl) closeShop();
@@ -1902,8 +1961,16 @@ function finishBuy() {
     shopBody.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-buy]");
       if (!btn) return;
-      const ok = buy(btn.dataset.buy);
-      if (!ok) btn.classList.add("deny");
+      let bought = 0;
+      for (let i = 0; i < buyQty; i++) {
+        if (!buy(btn.dataset.buy)) break;
+        bought += 1;
+      }
+      shopBody.classList.remove("flash");
+      if (bought) {
+        void shopBody.offsetWidth;
+        shopBody.classList.add("flash");
+      } else btn.classList.add("deny");
       setTimeout(() => btn.classList.remove("deny"), 240);
     });
     launchBtn.addEventListener("click", () => tryLaunch());
@@ -2028,6 +2095,7 @@ function finishBuy() {
         },
         orbit(dx, dy) { nudgeOrbit(dx, dy); },
         zoom(factor) { nudgeZoom(factor); },
+        toolWorld() { return sceneApi ? sceneApi.toolWorld() : null; },
         setCamera(yaw, pitch, dist) {
           state.camYawTo = yaw;
           state.camPitchTo = Math.max(CAM.pitchMin, Math.min(CAM.pitchMax, pitch));
@@ -2042,6 +2110,14 @@ function finishBuy() {
           return Math.sin(anim * motion * Math.PI);
         },
         toolId() { return TOOLS[state.tool].id; },
+        flowerCount() { return sceneApi ? sceneApi.flowerCount() : 0; },
+        sow(radius) {
+          const reach = radius || 16;
+          for (let n = 0; n < 6; n++) Planet.cleanAround(state.dust, state.pos, reach, 20000);
+          state.garden = Math.max(state.garden || 0, 4);
+          state.dust.stamp = (state.dust.stamp || 0) + 1;
+          frameStats = combatStats();
+        },
       },
     };
 

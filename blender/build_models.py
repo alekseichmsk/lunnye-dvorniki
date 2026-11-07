@@ -226,19 +226,20 @@ def shift_mesh(obj, offset):
 def build_janitor():
     """Cute Mars sweeper. Face looks along +Y so glTF forward (-Z) is the visor."""
     fresh()
-    orange = material("orange", (0.95, 0.38, 0.16, 1), rough=0.46, metal=0.08)
-    white = material("white", (0.96, 0.95, 0.93, 1), rough=0.32, metal=0.12)
-    ink = material("ink", (0.12, 0.08, 0.14, 1), rough=0.55, metal=0.2)
-    suit = material("suit", (0.93, 0.42, 0.18, 1), rough=0.42, metal=0.06)
-    pad = material("pad", (0.98, 0.93, 0.88, 1), rough=0.38, metal=0.04)
-    seam = material("seam", (0.45, 0.18, 0.12, 1), rough=0.6)
-    glove_m = material("glove", (0.98, 0.96, 0.93, 1), rough=0.4, metal=0.05)
-    boot_m = material("boot", (0.93, 0.30, 0.14, 1), rough=0.48, metal=0.1)
-    sole = material("sole", (0.16, 0.10, 0.12, 1), rough=0.7)
-    # Named "skin" so the facing test can find the visor.
-    visor_m = material("skin", (0.55, 0.95, 1.0, 1), rough=0.06, metal=0.82, emit=1.6, emit_color=(0.35, 0.85, 1.0, 1))
-    lamp_m = material("lamp", (1.0, 0.82, 0.35, 1), rough=0.25, emit=3.2, emit_color=(1.0, 0.78, 0.3, 1))
-    teal = material("teal", (0.2, 0.85, 0.78, 1), rough=0.3, emit=1.8, emit_color=(0.3, 0.95, 0.85, 1))
+    orange = material("orange", (0.72, 0.48, 0.30, 1), rough=1.0, metal=0.0)
+    white = material("white", (0.86, 0.78, 0.66, 1), rough=1.0, metal=0.0)
+    ink = material("ink", (0.28, 0.20, 0.16, 1), rough=1.0, metal=0.0)
+    suit = material("suit", (0.70, 0.46, 0.30, 1), rough=1.0, metal=0.0)
+    pad = material("pad", (0.82, 0.70, 0.52, 1), rough=1.0, metal=0.0)
+    seam = material("seam", (0.45, 0.30, 0.22, 1), rough=1.0, metal=0.0)
+    glove_m = material("glove", (0.90, 0.82, 0.68, 1), rough=1.0, metal=0.0)
+    boot_m = material("boot", (0.55, 0.34, 0.22, 1), rough=1.0, metal=0.0)
+    sole = material("sole", (0.24, 0.16, 0.12, 1), rough=1.0, metal=0.0)
+    # Named "skin" so the facing test can find the visor. Flat teal, not chrome.
+    visor_m = material("skin", (0.55, 0.70, 0.66, 1), rough=1.0, metal=0.0)
+    lamp_m = material("lamp", (0.86, 0.62, 0.34, 1), rough=1.0, metal=0.0)
+    teal = material("teal", (0.42, 0.62, 0.58, 1), rough=1.0, metal=0.0)
+    pack_m = material("pack", (0.48, 0.34, 0.24, 1), rough=1.0, metal=0.0)
     root = empty("janitor")
 
     def hang_cyl(name, mat, radius, length, origin, verts=12):
@@ -246,42 +247,53 @@ def build_janitor():
         shift_mesh(obj, (0, 0, -length / 2))
         return obj
 
-    body = sphere("body", suit, 0.30, (0, 0.02, 0.96), 22, 14, (1.05, 0.82, 1.12))
+    body = sphere("body", suit, 0.30, (0, 0.02, 0.96), 12, 8, (1.05, 0.82, 1.12))
     chest = sphere("chest", pad, 0.18, (0, 0.22, 1.02), 16, 10, (1.2, 0.62, 0.9))
+    chest_l = sphere("chest_light_l", lamp_m, 0.028, (-0.06, 0.32, 1.04), 8, 6)
+    chest_r = sphere("chest_light_r", teal, 0.028, (0.06, 0.32, 1.04), 8, 6)
     belly_seam = primitive("torus", "belly_seam", seam, major_radius=0.22, minor_radius=0.018, major_segments=18, minor_segments=6, location=(0, 0.02, 0.86))
     collar = primitive("torus", "collar", white, major_radius=0.16, minor_radius=0.028, major_segments=16, minor_segments=6, location=(0, 0.04, 1.22))
     shoulder_l = sphere("shoulder_l", orange, 0.09, (-0.28, 0.0, 1.16), 12, 8)
     shoulder_r = sphere("shoulder_r", orange, 0.09, (0.28, 0.0, 1.16), 12, 8)
 
-    helmet = sphere("helmet", white, 0.34, (0, 0.02, 1.46), 24, 16)
-    visor = sphere("visor", visor_m, 0.24, (0, 0.32, 1.44), 20, 12, (1.35, 0.72, 0.82))
+    helmet = sphere("helmet", white, 0.34, (0, 0.02, 1.46), 12, 8)
+    visor = sphere("visor", visor_m, 0.24, (0, 0.32, 1.44), 12, 8, (1.35, 0.72, 0.82))
     glow = primitive("torus", "visor_glow", teal, major_radius=0.2, minor_radius=0.02, major_segments=18, minor_segments=6, location=(0, 0.34, 1.44), rotation=(math.radians(90), 0, 0))
     ear_l = sphere("ear_l", white, 0.06, (-0.32, 0.0, 1.46), 10, 6)
     ear_r = sphere("ear_r", white, 0.06, (0.32, 0.0, 1.46), 10, 6)
     antenna = cylinder("antenna", ink, 0.012, 0.16, (0.12, -0.06, 1.84), 6)
     bulb = sphere("bulb", lamp_m, 0.035, (0.12, -0.06, 1.94), 8, 6)
 
-    pack = sphere("backpack", white, 0.22, (0, -0.34, 1.04), 16, 10, (0.95, 0.7, 1.1))
-    pack_pad = cube("backpack_pad", orange, (0.26, 0.08, 0.32), (0, -0.46, 1.04))
+    pack = sphere("backpack", pack_m, 0.22, (0, -0.34, 1.04), 10, 8, (0.95, 0.7, 1.1))
+    pack_pad = cube("backpack_pad", pad, (0.26, 0.08, 0.32), (0, -0.46, 1.04))
     light_l = sphere("pack_light_l", lamp_m, 0.04, (-0.09, -0.52, 1.14), 8, 6)
     light_r = sphere("pack_light_r", teal, 0.04, (0.09, -0.52, 1.14), 8, 6)
     hose = cylinder("hose", ink, 0.018, 0.22, (0.16, -0.16, 1.18), 8, rot=(0, math.radians(70), math.radians(20)))
 
     def arm(name, side):
         shoulder = (side * 0.36, 0.04, 1.18)
-        upper = hang_cyl(name, suit, 0.07, 0.30, shoulder, 12)
+        upper = hang_cyl(name, suit, 0.07, 0.30, shoulder, 8)
         seam_band = primitive("torus", name + "_seam", seam, major_radius=0.072, minor_radius=0.012, major_segments=12, minor_segments=6, location=(shoulder[0], shoulder[1], shoulder[2] - 0.16))
         parent_to(seam_band, upper)
-        fore = hang_cyl(name + "_fore", orange, 0.055, 0.24, (shoulder[0] + side * 0.02, 0.08, shoulder[2] - 0.30), 10)
+        fore = hang_cyl(name + "_fore", teal, 0.055, 0.24, (shoulder[0] + side * 0.02, 0.08, shoulder[2] - 0.30), 8)
         parent_to(fore, upper)
         glove = sphere(name + "_glove", glove_m, 0.07, (shoulder[0] + side * 0.03, 0.14, shoulder[2] - 0.52), 12, 8)
         parent_to(glove, upper)
+        if side > 0:
+            for i, zoff in enumerate((0.045, 0.0, -0.045)):
+                finger = cylinder(
+                    name + f"_finger_{i}", glove_m, radius=0.012, depth=0.07,
+                    loc=(glove.location.x + 0.01, glove.location.y + 0.055, glove.location.z + zoff),
+                    vertices=6, rot=(math.radians(80), 0, math.radians(18 * side)),
+                )
+                parent_to(finger, upper)
         return upper, glove
 
     arm_l, _glove_l = arm("arm_l", -1)
     arm_r, glove_r = arm("arm_r", 1)
     bpy.context.view_layer.update()
-    socket = empty("tool_socket", glove_r.matrix_world.translation)
+    palm = glove_r.matrix_world.translation + Vector((0.0, 0.05, 0.0))
+    socket = empty("tool_socket", palm)
     parent_to(socket, arm_r)
 
     def leg(name, side):
@@ -301,7 +313,7 @@ def build_janitor():
     leg_r = leg("leg_r", 1)
 
     for part in (
-        body, chest, belly_seam, collar, shoulder_l, shoulder_r,
+        body, chest, chest_l, chest_r, belly_seam, collar, shoulder_l, shoulder_r,
         helmet, visor, glow, ear_l, ear_r, antenna, bulb,
         pack, pack_pad, light_l, light_r, hose,
         arm_l, arm_r, leg_l, leg_r,

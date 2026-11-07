@@ -21,7 +21,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: #6a2c28;
+  background: #c4a882;
   color: var(--ink);
   touch-action: none;
   user-select: none;
@@ -64,7 +64,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
   height: 100dvh;
   margin: 0;
   overflow: hidden;
-  background: #c45a32;
+  background: #c4a882;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -103,10 +103,103 @@ button:active:not(:disabled) { transform: translateY(1px); }
   pointer-events: none;
 }
 
-.top button, .dock button, .dock .stick, .fs {
+.hud-top button, .launch-fab, .stick, .menu, .menu button {
   pointer-events: auto;
   touch-action: manipulation;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.hud-top { flex-direction: row; align-items: center; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 246, 234, 0.88);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 6px 10px 6px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.mini-bar {
+  width: 52px;
+  height: 8px;
+  border-radius: 99px;
+  background: #efe2d4;
+  border: 1px solid var(--ink);
+  overflow: hidden;
+}
+
+.mini-bar > span { display: block; height: 100%; width: 0; background: #14b889; }
+
+.icon-fab {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(255, 246, 234, 0.9);
+  font-size: 1.15rem;
+}
+
+.icon-fab.deal { box-shadow: 0 0 0 3px var(--mint); }
+
+.launch-fab {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--mint);
+  color: white;
+  border-radius: 999px;
+  min-height: 42px;
+}
+
+.launch-fab:disabled { display: none; }
+
+.stick {
+  position: absolute;
+  z-index: 5;
+  left: calc(12px + env(safe-area-inset-left));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+}
+
+.menu {
+  position: absolute;
+  z-index: 6;
+  top: calc(62px + env(safe-area-inset-top));
+  right: calc(10px + env(safe-area-inset-right));
+  width: min(300px, calc(100vw - 24px));
+  background: rgba(255, 246, 234, 0.96);
+  border: 2px solid var(--ink);
+  border-radius: 16px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qty { display: flex; gap: 4px; }
+.qty button { min-height: 32px; padding: 4px 8px; border-radius: 999px; background: white; }
+.qty button.on { background: var(--sun); }
+.buy.can { background: var(--sun); }
+.buy.cannot { background: #e4ddd4; color: #7d746c; }
+.shop-body.flash { animation: pop 0.28s ease; }
+.grab { width: 42px; height: 5px; border-radius: 99px; background: #d9cfc2; margin: 0 auto 6px; }
 
 .top {
   display: flex;
@@ -527,6 +620,16 @@ button:active:not(:disabled) { transform: translateY(1px); }
 
 .row strong { display: block; }
 
+.rose-row { grid-template-columns: 46px minmax(0, 1fr) auto; }
+
+.row-icon {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #2c241c;
+}
+
 .row p, .row em {
   display: block;
   margin: 2px 0 0;
@@ -663,11 +766,14 @@ button:active:not(:disabled) { transform: translateY(1px); }
   .actions { gap: 4px; }
   .action-row { flex-wrap: nowrap; gap: 6px; }
   .action-row button { min-height: 40px; font-size: 0.82rem; padding: 6px 8px; flex: 1 1 auto; }
-  .sheet, .modal { align-items: center; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  .sheet-card, .modal-card {
-    width: min(720px, 100%);
-    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px);
-    border-radius: 18px;
+  .sheet { justify-content: flex-end; align-items: stretch; padding: 0; }
+  .modal { align-items: center; padding: env(safe-area-inset-top) 8px env(safe-area-inset-bottom); }
+  .sheet-card {
+    width: min(440px, 52vw);
+    height: 100%;
+    max-height: 100dvh;
+    margin-left: auto;
+    border-radius: 18px 0 0 18px;
   }
   .summary { display: none; }
   .sheet-head, .modal-card h2 { padding-top: 8px; }

@@ -13,6 +13,7 @@ const types = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
   ".glb": "model/gltf-binary",
 };
 
@@ -205,6 +206,37 @@ async function main() {
     await ev("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     const facing = await ev("__LUNAR.testing.facing()");
     assert(facing > 0.5, "character should face its movement, dot " + facing);
+    const roses = await ev(`
+      __LUNAR.testing.sow(18);
+      return new Promise((resolve) => {
+        const started = performance.now();
+        const step = () => {
+          const count = __LUNAR.testing.flowerCount();
+          if (count > 4 || performance.now() - started > 1500) resolve(count);
+          else requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    `);
+    assert(roses > 4, "roses should grow on cleaned ground, got " + roses);
+    await ev(`
+      __LUNAR.testing.setTool(1);
+      __LUNAR.setMove(0, -1);
+      __LUNAR.tick(0.05);
+      return true;
+    `);
+    await ev("new Promise((resolve) => requestAnimationFrame(resolve))");
+    const toolA = await ev("__LUNAR.testing.toolWorld()");
+    await ev("__LUNAR.tick(0.32)");
+    await ev("new Promise((resolve) => requestAnimationFrame(resolve))");
+    const toolB = await ev("__LUNAR.testing.toolWorld()");
+    await ev("__LUNAR.clearMove()");
+    const toolMove = Math.hypot(
+      (toolB.x - toolB.px) - (toolA.x - toolA.px),
+      (toolB.y - toolB.py) - (toolA.y - toolA.py),
+      (toolB.z - toolB.pz) - (toolA.z - toolA.pz),
+    );
+    assert(toolMove > 0.12, "tool should move while sweeping, delta " + toolMove);
     assert(title === "Марсианские дворники", "title " + title);
     const heading = await ev("document.querySelector('h1').textContent");
     assert(heading.includes("Марсианские дворники"), "heading");

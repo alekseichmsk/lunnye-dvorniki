@@ -28,6 +28,90 @@ export function sweepCycle(id, time, cleaning) {
   return (time * freq) / Math.PI;
 }
 
+const FLOWER_MAX = 480;
+const ROSE_CREAM = new THREE.Color("#f6ebe3");
+const ROSE_BLUSH = new THREE.Color("#f3c9d0");
+const ROSE_PINK = new THREE.Color("#d45384");
+const ROSE_STEM = new THREE.Color("#3c6844");
+const ROSE_LEAF = new THREE.Color("#4d7c50");
+const ROSE_LEAF_DARK = new THREE.Color("#2c5538");
+
+function flowerHash(i) {
+  let n = (i + 1) >>> 0;
+  n = Math.imul(n ^ (n >>> 16), 0x7feb352d);
+  n = Math.imul(n ^ (n >>> 15), 0x846ca68b);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+function buildRoseGeometry() {
+  const pos = [];
+  const col = [];
+  function tri(a, b, c, ca, cb, cc) {
+    pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+    col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
+  }
+  function ring(y0, y1, r0, r1, sides, c0, c1) {
+    for (let i = 0; i < sides; i++) {
+      const a0 = (i / sides) * Math.PI * 2;
+      const a1 = ((i + 1) / sides) * Math.PI * 2;
+      const p00 = [Math.cos(a0) * r0, y0, Math.sin(a0) * r0];
+      const p10 = [Math.cos(a1) * r0, y0, Math.sin(a1) * r0];
+      const p01 = [Math.cos(a0) * r1, y1, Math.sin(a0) * r1];
+      const p11 = [Math.cos(a1) * r1, y1, Math.sin(a1) * r1];
+      tri(p00, p10, p11, c0, c0, c1);
+      tri(p00, p11, p01, c0, c1, c1);
+    }
+  }
+  ring(0, 0.26, 0.022, 0.016, 5, ROSE_STEM, ROSE_STEM);
+  ring(0.2, 0.32, 0.055, 0.028, 5, ROSE_LEAF_DARK, ROSE_LEAF_DARK);
+  function petal(yaw, lift, len, width, curl) {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const baseY = 0.31 + lift;
+    const b1 = [c * 0.02 - s * width * 0.45, baseY, s * 0.02 + c * width * 0.45];
+    const b2 = [c * 0.02 + s * width * 0.45, baseY, s * 0.02 - c * width * 0.45];
+    const m1 = [c * len * 0.62 - s * width, baseY + curl * 0.25, s * len * 0.62 + c * width];
+    const m2 = [c * len * 0.62 + s * width, baseY + curl * 0.25, s * len * 0.62 - c * width];
+    const tip = [c * len * 0.9, baseY + curl, s * len * 0.9];
+    tri(b1, b2, m2, ROSE_CREAM, ROSE_CREAM, ROSE_BLUSH);
+    tri(b1, m2, m1, ROSE_CREAM, ROSE_BLUSH, ROSE_BLUSH);
+    tri(m1, m2, tip, ROSE_BLUSH, ROSE_BLUSH, ROSE_PINK);
+  }
+  for (let i = 0; i < 6; i++) petal((i / 6) * Math.PI * 2 + 0.2, 0, 0.16, 0.1, 0.035);
+  for (let i = 0; i < 5; i++) petal((i / 5) * Math.PI * 2 + 0.35, 0.045, 0.12, 0.075, 0.07);
+  for (let i = 0; i < 4; i++) petal((i / 4) * Math.PI * 2, 0.09, 0.075, 0.05, 0.1);
+  ring(0.4, 0.46, 0.03, 0.012, 5, ROSE_BLUSH, ROSE_PINK);
+  function leaf(yaw, len) {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const tip = [c * len, 0.05, s * len];
+    const w = len * 0.36;
+    const left = [-s * w, 0.1, c * w];
+    const right = [s * w, 0.1, -c * w];
+    const root = [c * 0.02, 0.12, s * 0.02];
+    tri(root, tip, left, ROSE_LEAF, ROSE_LEAF_DARK, ROSE_LEAF);
+    tri(root, right, tip, ROSE_LEAF, ROSE_LEAF, ROSE_LEAF_DARK);
+  }
+  leaf(0.5, 0.18);
+  leaf(2.5, 0.16);
+  leaf(4.3, 0.15);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function slopeFrame(normal, yaw) {
+  let east = Planet.cross({ x: 0, y: 1, z: 0 }, normal);
+  if (Planet.dot(east, east) < 1e-8) east = Planet.cross({ x: 1, y: 0, z: 0 }, normal);
+  east = Planet.norm(east);
+  const north = Planet.norm(Planet.cross(normal, east));
+  const forward = Planet.norm(Planet.add(Planet.scale(north, Math.cos(yaw)), Planet.scale(east, Math.sin(yaw))));
+  const right = Planet.norm(Planet.cross(forward, normal));
+  return { forward, right, up: normal };
+}
+
 const MODEL_FILES = [
   "janitor",
   "tool_brush", "tool_broom", "tool_mop", "tool_vac", "tool_ind",
@@ -47,15 +131,23 @@ const ROBOT_FILE = {
 };
 
 const TERRAIN_VERT = `
+  uniform sampler2D dustMap;
   in vec3 color;
-  out vec3 vNormal;
+  flat out vec3 vNormal;
   out vec3 vColor;
   out vec2 vUv;
+  out vec3 vWorld;
+  out float vDust;
   void main() {
     vUv = uv;
     vColor = color;
-    vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    float dust = texture(dustMap, uv).a;
+    vDust = dust;
+    vec3 displaced = position + normal * dust * 0.48;
+    vec4 world = modelMatrix * vec4(displaced, 1.0);
+    vWorld = world.xyz;
+    vNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
@@ -65,19 +157,31 @@ const TERRAIN_FRAG = `
   uniform vec3 sunDir;
   uniform vec3 skyColor;
   uniform vec3 groundBounce;
-  in vec3 vNormal;
+  uniform vec3 cameraPos;
+  flat in vec3 vNormal;
   in vec3 vColor;
   in vec2 vUv;
+  in vec3 vWorld;
+  in float vDust;
   out vec4 fragColor;
+  float grain(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
   void main() {
     float dust = texture(dustMap, vUv).a;
-    vec3 rusty = vec3(0.55, 0.20, 0.07);
-    vec3 albedo = mix(vColor, rusty, smoothstep(0.02, 0.4, dust));
+    float speckle = grain(floor(vUv * vec2(48.0, 36.0)));
+    vec3 dustCol = vec3(0.78, 0.68, 0.52) * (0.94 + 0.08 * speckle);
+    vec3 cleanCol = mix(vec3(0.55, 0.28, 0.18), vColor, 0.45);
+    float cover = smoothstep(0.05, 0.2, dust);
+    vec3 albedo = mix(cleanCol, dustCol, cover);
+    float edge = smoothstep(0.06, 0.14, dust) * (1.0 - smoothstep(0.22, 0.4, dust));
+    albedo = mix(albedo, vec3(0.93, 0.84, 0.68), edge * 0.55);
     vec3 n = normalize(vNormal);
-    float ndl = dot(n, normalize(sunDir)) * 0.5 + 0.5;
-    float hemi = n.y * 0.35 + 0.65;
-    vec3 light = mix(groundBounce, skyColor, hemi) * 0.55 + vec3(1.0, 0.92, 0.82) * ndl;
-    fragColor = vec4(albedo * light, 1.0);
+    float ndl = dot(n, normalize(sunDir)) * 0.35 + 0.65;
+    float hemi = n.y * 0.22 + 0.78;
+    vec3 light = mix(groundBounce, skyColor, hemi) * 0.72 + vec3(1.0, 0.93, 0.82) * ndl * 0.38;
+    vec3 colorOut = albedo * light;
+    fragColor = vec4(colorOut, 1.0);
   }
 `;
 
@@ -97,18 +201,14 @@ function rememberRest(root) {
 
 function toSurface(root) {
   const convert = (material) => {
-    const emissive = material.emissive ? material.emissive.clone() : new THREE.Color(0x000000);
     const named = material.name || "";
-    const glowing = /skin|lamp|teal|visor/i.test(named) || emissive.r + emissive.g + emissive.b > 0.2;
-    return new THREE.MeshStandardMaterial({
+    const color = material.color ? material.color.clone() : new THREE.Color(0xffffff);
+    return new THREE.MeshLambertMaterial({
       name: named,
-      color: material.color ? material.color.clone() : new THREE.Color(0xffffff),
+      color,
       map: material.map || null,
-      emissive,
-      emissiveIntensity: glowing ? Math.max(material.emissiveIntensity || 1, 1.35) : (material.emissiveIntensity || 1),
-      roughness: material.roughness ?? 0.58,
-      metalness: Math.min(material.metalness ?? 0.04, glowing ? 0.85 : 0.35),
-      envMapIntensity: glowing ? 1.15 : 0.55,
+      emissive: new THREE.Color(0x000000),
+      flatShading: true,
     });
   };
   root.traverse((obj) => {
@@ -161,21 +261,20 @@ export async function createScene(canvas) {
     powerPreference: "high-performance",
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.12;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.toneMappingExposure = 1;
+  renderer.shadowMap.enabled = false;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf7b7c6);
-  scene.fog = new THREE.Fog(0xf3b3b8, 90, 340);
+  scene.background = new THREE.Color(0xe7d3b4);
+  scene.fog = new THREE.Fog(0xe4c9a8, 12, 78);
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.12, 1400);
-  const hemi = new THREE.HemisphereLight(0xffd0c2, 0x8a3d28, 1.15);
+  const hemi = new THREE.HemisphereLight(0xf3e2c8, 0xa87858, 1.35);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffe2c4, 1.7);
-  sun.castShadow = true;
+  const sun = new THREE.DirectionalLight(0xfff0dc, 0.55);
+  sun.castShadow = false;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.near = 0.4;
   sun.shadow.camera.far = 36;
@@ -187,16 +286,22 @@ export async function createScene(canvas) {
   sun.shadow.bias = -0.0006;
   scene.add(sun);
   scene.add(sun.target);
-  const fill = new THREE.DirectionalLight(0xfff4ea, 0.45);
+  const fill = new THREE.DirectionalLight(0xf6e6cf, 0.35);
   scene.add(fill);
-  const envScene = new THREE.Scene();
-  envScene.add(new THREE.HemisphereLight(0xffd5e4, 0xc45a32, 1.4));
-  const envSun = new THREE.DirectionalLight(0xfff6ea, 2.2);
-  envSun.position.set(6, 10, 3);
-  envScene.add(envSun);
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(envScene, 0.04).texture;
-  pmrem.dispose();
+
+  const roseMesh = new THREE.InstancedMesh(
+    buildRoseGeometry(),
+    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+    FLOWER_MAX,
+  );
+  roseMesh.count = 0;
+  roseMesh.frustumCulled = false;
+  scene.add(roseMesh);
+  const flowers = [];
+  const flowerByIndex = new Map();
+  let flowerStamp = -1;
+  let flowerGarden = -1;
+  const flowerMatrix = new THREE.Matrix4();
 
   const loader = new GLTFLoader();
   const templates = {};
@@ -230,7 +335,7 @@ export async function createScene(canvas) {
   const terrainMat = [];
   const dustTextures = [];
   const dustData = [];
-  const seg = 42;
+  const seg = Planet.MESH_SEG;
   for (let face = 0; face < 6; face++) {
     const grid = Planet.faceGrid(face, seg);
     const geo = new THREE.BufferGeometry();
@@ -250,8 +355,9 @@ export async function createScene(canvas) {
       uniforms: {
         dustMap: { value: texture },
         sunDir: { value: sunDir },
-        skyColor: { value: new THREE.Color(0xffcabb) },
-        groundBounce: { value: new THREE.Color(0x7a3424) },
+        skyColor: { value: new THREE.Color(0xe7d3b4) },
+        groundBounce: { value: new THREE.Color(0xa07858) },
+        cameraPos: { value: new THREE.Vector3() },
       },
       vertexShader: TERRAIN_VERT,
       fragmentShader: TERRAIN_FRAG,
@@ -324,6 +430,16 @@ export async function createScene(canvas) {
   let rideMesh = null;
   let rideId = null;
 
+  const footShadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.46, 24),
+    new THREE.MeshBasicMaterial({ color: 0x6a4634, transparent: true, opacity: 0.28, depthWrite: false }),
+  );
+  footShadow.renderOrder = 1;
+  scene.add(footShadow);
+  const rim = new THREE.DirectionalLight(0xf3e6cf, 0.28);
+  rim.position.set(-8, 5, -6);
+  scene.add(rim);
+
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.92, 1, 28),
     new THREE.MeshBasicMaterial({ color: 0xfff6ea, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
@@ -365,6 +481,105 @@ export async function createScene(canvas) {
     obj.updateMatrixWorld(true);
     const grounded = new THREE.Box3().setFromObject(obj);
     obj.position.add(new THREE.Vector3(0, 1, 0).applyQuaternion(obj.quaternion).multiplyScalar(-grounded.min.y * 0 + 0));
+  }
+
+  function plantFlower(index, anim) {
+    const dir = {
+      x: Planet.cellDir[index * 3],
+      y: Planet.cellDir[index * 3 + 1],
+      z: Planet.cellDir[index * 3 + 2],
+    };
+    const yaw = flowerHash(index + 17) * Math.PI * 2;
+    const j1 = flowerHash(index + 101) - 0.5;
+    const j2 = flowerHash(index + 307) - 0.5;
+    const base = Planet.meshSurface(dir);
+    const wander = Planet.basis(base, yaw);
+    const spot = { x: base.x, y: base.y, z: base.z };
+    Planet.moveAlong(spot, {
+      x: wander.right.x * j1 + wander.forward.x * j2,
+      y: wander.right.y * j1 + wander.forward.y * j2,
+      z: wander.right.z * j1 + wander.forward.z * j2,
+    }, 0.35 + Math.abs(j1) * 1.35);
+    const normal = Planet.surfaceNormal(spot);
+    const frame = slopeFrame(normal, yaw);
+    const lift = 0.015;
+    return {
+      index,
+      born: anim,
+      size: 1.05 + flowerHash(index + 503) * 0.55,
+      spin: yaw,
+      px: spot.x + normal.x * lift,
+      py: spot.y + normal.y * lift,
+      pz: spot.z + normal.z * lift,
+      ux: frame.up.x, uy: frame.up.y, uz: frame.up.z,
+      rx: frame.right.x, ry: frame.right.y, rz: frame.right.z,
+      fx: frame.forward.x, fy: frame.forward.y, fz: frame.forward.z,
+    };
+  }
+
+  function syncFlowers(dust, garden, anim) {
+    const chance = Math.min(0.55, 0.16 + garden * 0.035);
+    const cap = Math.min(FLOWER_MAX, 80 + garden * 32);
+    const amount = dust.amount;
+    const bag = [];
+    for (let i = 0; i < amount.length; i++) {
+      if (amount[i] > 5) continue;
+      const h = flowerHash(i);
+      if (h > chance) continue;
+      if (bag.length < cap) {
+        bag.push(i);
+        if (bag.length === cap) bag.sort((a, b) => flowerHash(a) - flowerHash(b));
+      } else if (h < flowerHash(bag[cap - 1])) {
+        let lo = 0;
+        let hi = cap - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (flowerHash(bag[mid]) < h) lo = mid + 1;
+          else hi = mid;
+        }
+        bag.splice(lo, 0, i);
+        bag.pop();
+      }
+    }
+    flowers.length = 0;
+    const keep = new Set();
+    for (const index of bag) {
+      let rec = flowerByIndex.get(index);
+      if (!rec) rec = plantFlower(index, anim);
+      flowerByIndex.set(index, rec);
+      flowers.push(rec);
+      keep.add(index);
+    }
+    if (flowerByIndex.size !== keep.size) {
+      for (const index of flowerByIndex.keys()) {
+        if (!keep.has(index)) flowerByIndex.delete(index);
+      }
+    }
+    roseMesh.count = flowers.length;
+  }
+
+  function poseFlowers(anim) {
+    for (let i = 0; i < flowers.length; i++) {
+      const f = flowers[i];
+      const age = Math.max(0, anim - f.born);
+      const t = Math.min(1, age / 0.9);
+      const e = t * t * (3 - 2 * t);
+      const pop = e * (1 + Math.sin(e * Math.PI) * 0.16);
+      const sway = Math.sin(anim * 1.35 + f.spin) * 0.1 * e;
+      const s = f.size * pop;
+      const sy = s * (0.28 + 0.72 * Math.min(1, e * 1.25));
+      const ux = f.ux + f.rx * sway;
+      const uy = f.uy + f.ry * sway;
+      const uz = f.uz + f.rz * sway;
+      flowerMatrix.set(
+        f.rx * s, ux * sy, f.fx * s, f.px,
+        f.ry * s, uy * sy, f.fy * s, f.py,
+        f.rz * s, uz * sy, f.fz * s, f.pz,
+        0, 0, 0, 1,
+      );
+      roseMesh.setMatrixAt(i, flowerMatrix);
+    }
+    if (flowers.length) roseMesh.instanceMatrix.needsUpdate = true;
   }
 
   function paintDust(dust) {
@@ -459,21 +674,35 @@ export async function createScene(canvas) {
     const { state, robots, particles, floaters, rockets, anim, shake, frameStats, frameMoving, frameCleaning, reduceMotion } = frame;
     if (state.dust) {
       const stamp = state.dust.stamp | 0;
+      const garden = state.garden | 0;
       if (stamp !== dustStamp) {
         paintDust(state.dust);
         dustStamp = stamp;
       }
+      if (stamp !== flowerStamp || garden !== flowerGarden) {
+        syncFlowers(state.dust, garden, anim);
+        flowerStamp = stamp;
+        flowerGarden = garden;
+      }
+      poseFlowers(anim);
     }
     ensureTool(frameStats.tool.id);
     ensureRide(state.riding);
     const pos = state.pos;
     const frameBasis = Planet.basis(pos, state.heading || 0);
     placeUpright(player, pos, new THREE.Vector3(frameBasis.forward.x, frameBasis.forward.y, frameBasis.forward.z));
-    janitor.position.y = state.riding ? 0.62 : (frameMoving ? Math.abs(Math.sin(anim * 10)) * 0.05 : 0);
-    const step = frameMoving ? Math.sin(anim * (frameCleaning ? 9 : 7)) : Math.sin(anim * 1.6) * 0.08;
-    swing(legL, step * 0.55);
-    swing(legR, -step * 0.55);
-    poseArms(anim, frameStats.tool.id, frameCleaning, frameMoving, reduceMotion);
+    timeDelta = Math.max(0.001, Math.min(0.05, frame.dt || 1 / 60));
+    stateRiding = !!state.riding;
+    const lean = Math.max(-0.18, Math.min(0.18, (state.turnRate || 0) * 0.08));
+    janitor.rotation.z = lean;
+    janitor.rotation.x = Math.min(0.12, (state.glide || 0) * 0.015);
+    poseArms(anim, frameStats.tool.id, frameCleaning, frameMoving, reduceMotion, state.glide || 0);
+    if (footShadow) {
+      footShadow.position.set(pos.x, pos.y, pos.z);
+      const n = Planet.up(pos);
+      footShadow.position.add(new THREE.Vector3(n.x, n.y, n.z).multiplyScalar(0.04));
+      footShadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(n.x, n.y, n.z));
+    }
     if (rideMesh) {
       const spin = anim * (frameMoving ? 9 : 1.5);
       rideMesh.traverse((obj) => {
@@ -559,8 +788,8 @@ export async function createScene(canvas) {
         .addScaledVector(ahead, -Math.cos(pitch) * dist)
         .addScaledVector(up, Math.sin(pitch) * dist);
       look = focus.clone().addScaledVector(ahead, Math.min(1.5, dist * 0.2)).addScaledVector(up, 0.62);
-      scene.fog.near = 28 + dist * 8;
-      scene.fog.far = 180 + dist * 28;
+      scene.fog.near = 10 + dist * 1.4;
+      scene.fog.far = 42 + dist * 9;
     }
     if (!reduceMotion && shake > 0 && !state.overview) {
       desired.x += Math.sin(anim * 40) * shake * 0.02;
@@ -578,6 +807,7 @@ export async function createScene(canvas) {
     camera.position.copy(camHold.pos);
     camera.up.copy(camHold.up);
     camera.lookAt(camHold.look);
+    for (const mat of terrainMat) mat.uniforms.cameraPos.value.copy(camera.position);
     sun.position.copy(focus).add(new THREE.Vector3(8, 14, 6));
     sun.target.position.copy(focus);
     fill.position.copy(camera.position);
@@ -592,14 +822,62 @@ export async function createScene(canvas) {
     return world.normalize().dot(_v.copy(forward).normalize());
   }
 
-  function poseArms(time, toolId, cleaning, moving, reduceMotion) {
+  function poseArms(time, toolId, cleaning, moving, reduceMotion, glide) {
     const motion = toolMotion(toolId);
-    const amp = reduceMotion ? 0.15 : cleaning ? 1 : moving ? 0.42 : 0.16;
-    const freq = motion.freq * (cleaning ? 1 : 0.45);
+    const acting = cleaning || moving;
+    const amp = reduceMotion ? 0.2 : acting ? 1 : 0.22;
+    const freq = motion.freq * (acting ? 1 : 0.35);
     const wave = Math.sin(time * freq);
-    const base = 0.7;
-    poseArm(armR, base + wave * motion.pitch * amp, 0, wave * motion.roll * amp);
-    poseArm(armL, 0.18 + wave * motion.pitch * amp * 0.4, 0, -wave * motion.roll * amp * 0.32);
+    const sweep = acting && !reduceMotion;
+    const twist = sweep ? wave * (motion.roll > 0.4 ? 0.42 : 0.12) * amp : 0;
+    twistUpper(twist);
+    if (sweep && motion.roll > 0.4) {
+      poseArm(armR, 1.05 + wave * 0.18, twist, wave * 1.35 * amp);
+      poseArm(findNamed(janitor, "arm_r_fore"), 0.2, 0, 0);
+      poseArm(armL, 0.35, twist * 0.6, -wave * 0.45 * amp);
+    } else if (sweep) {
+      poseArm(armR, 0.85 + wave * motion.pitch, twist, wave * 0.35);
+      poseArm(armL, 0.25, twist * 0.4, -wave * 0.15);
+    } else {
+      const arm = moving ? Math.sin(walkPhase) * 0.55 : Math.sin(time * 1.3) * 0.08;
+      poseArm(armR, 0.25 + arm, 0, 0.05);
+      poseArm(armL, 0.25 - arm, 0, -0.05);
+      const foreR = findNamed(janitor, "arm_r_fore");
+      const foreL = findNamed(janitor, "arm_l_fore");
+      poseArm(foreR, moving ? 0.35 + Math.max(0, arm) * 0.4 : 0.15, 0, 0);
+      poseArm(foreL, moving ? 0.35 + Math.max(0, -arm) * 0.4 : 0.15, 0, 0);
+    }
+    stepLegs(moving ? glide : 0, time, reduceMotion);
+    const bob = moving
+      ? Math.abs(Math.sin(walkPhase)) * 0.1
+      : Math.sin(time * 1.5) * 0.015;
+    janitor.position.y = (stateRiding ? 0.62 : 0) + bob;
+    const breathe = 1 + Math.sin(time * 1.6) * (moving ? 0.008 : 0.02);
+    const body = findNamed(janitor, "body");
+    if (body) body.scale.y = breathe;
+  }
+
+  let walkPhase = 0;
+  let stateRiding = false;
+  function stepLegs(speed, time, reduceMotion) {
+    const stride = 0.64;
+    if (speed > 0.05 && !reduceMotion) walkPhase += (speed / stride) * timeDelta * Math.PI * 2;
+    const swing = reduceMotion ? 0 : Math.sin(walkPhase) * 0.48;
+    const knee = (phase) => 0.18 + Math.pow(Math.max(0, Math.sin(phase)), 1.15) * 0.95;
+    poseArm(legL, speed > 0.05 ? swing : 0, 0, 0);
+    poseArm(legR, speed > 0.05 ? -swing : 0, 0, 0);
+    poseArm(findNamed(janitor, "leg_l_shin"), speed > 0.05 ? -knee(walkPhase) : -0.12, 0, 0);
+    poseArm(findNamed(janitor, "leg_r_shin"), speed > 0.05 ? -knee(walkPhase + Math.PI) : -0.12, 0, 0);
+  }
+
+  let timeDelta = 1 / 60;
+  function twistUpper(amount) {
+    for (const name of ["body", "chest", "helmet", "visor", "visor_glow", "backpack", "backpack_pad", "shoulder_l", "shoulder_r"]) {
+      const part = findNamed(janitor, name);
+      if (!part || !part.userData.rest) continue;
+      part.quaternion.copy(part.userData.rest);
+      part.rotateY(amount);
+    }
   }
 
   resize();
@@ -609,6 +887,14 @@ export async function createScene(canvas) {
     modelsLoaded: true,
     planetRadius: Planet.RADIUS,
     faceDot,
+    toolWorld() {
+      if (!toolMesh) return { x: 0, y: 0, z: 0, px: 0, py: 0, pz: 0 };
+      const p = toolMesh.getWorldPosition(new THREE.Vector3());
+      return { x: p.x, y: p.y, z: p.z, px: player.position.x, py: player.position.y, pz: player.position.z };
+    },
+    flowerCount() {
+      return flowers.length;
+    },
   };
 }
 
@@ -679,16 +965,18 @@ function seatTool(mesh, id) {
   const rot = HELD[id];
   mesh.position.set(0, 0, 0);
   mesh.rotation.set(0, 0, 0);
-  mesh.scale.setScalar(id === "brush" ? 1.75 : rot ? 1.15 : 1.45);
-  if (rot) mesh.rotation.set(rot[0], rot[1], rot[2]);
+  mesh.scale.setScalar(1);
+  if (id === "brush") mesh.rotation.x = -Math.PI / 2;
+  else if (rot) mesh.rotation.set(rot[0], rot[1], rot[2]);
   mesh.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(mesh);
-  const grip = rot
-    ? box.getCenter(new THREE.Vector3())
-    : new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y - 0.05, (box.min.z + box.max.z) / 2);
+  const height = box.max.y - box.min.y;
+  const grip = new THREE.Vector3(
+    (box.min.x + box.max.x) / 2,
+    box.max.y - height * (rot ? 0.42 : 0.08),
+    (box.min.z + box.max.z) / 2,
+  );
   mesh.position.sub(grip);
-  mesh.position.z -= 0.2;
-  mesh.position.y -= rot ? 0.04 : 0.02;
 }
 
 function textSprite(text, color) {

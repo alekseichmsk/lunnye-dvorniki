@@ -5,12 +5,12 @@ export const CELLS = DUST_N * DUST_N;
 export const FACE_COUNT = 6;
 
 export const BIOMES = [
-  { id: "plains", short: "Равнины", name: "Ржавые равнины", price: 1, density: 1, color: "#d47245" },
-  { id: "highlands", short: "Нагорье", name: "Рыжие нагорья", price: 1.35, density: 1.18, color: "#b55232" },
-  { id: "dunes", short: "Дюны", name: "Дюны Сирокко", price: 1.55, density: 1.42, color: "#e39455" },
-  { id: "canyon", short: "Каньон", name: "Каньон Эхо", price: 1.95, density: 1.6, color: "#8c3424" },
-  { id: "olympus", short: "Олимп", name: "Склоны Олимпа", price: 2.7, density: 1.85, color: "#6d2c24" },
-  { id: "ice", short: "Льды", name: "Полярные шапки", price: 2.25, density: 0.62, color: "#f3d5cc" },
+  { id: "plains", short: "Равнины", name: "Ржавые равнины", price: 1, density: 1, color: "#b56a45" },
+  { id: "highlands", short: "Нагорье", name: "Рыжие нагорья", price: 1.35, density: 1.18, color: "#9a5a3c" },
+  { id: "dunes", short: "Дюны", name: "Дюны Сирокко", price: 1.55, density: 1.42, color: "#c48955" },
+  { id: "canyon", short: "Каньон", name: "Каньон Эхо", price: 1.95, density: 1.6, color: "#7d4636" },
+  { id: "olympus", short: "Олимп", name: "Склоны Олимпа", price: 2.7, density: 1.85, color: "#6a4034" },
+  { id: "ice", short: "Льды", name: "Полярные шапки", price: 2.25, density: 0.62, color: "#d9c7b4" },
 ];
 
 const FACES = [
@@ -255,8 +255,7 @@ export function moveAlong(pos, tangent, distance) {
   const c = Math.cos(angleStep);
   const s = Math.sin(angleStep);
   const rotated = add(add(scale(pos, c), scale(cross(axis, pos), s)), scale(axis, dot(axis, pos) * (1 - c)));
-  const dir = norm(rotated);
-  const landed = scale(dir, RADIUS + height(dir));
+  const landed = meshSurface(norm(rotated));
   pos.x = landed.x;
   pos.y = landed.y;
   pos.z = landed.z;
@@ -475,6 +474,64 @@ export function rockField() {
     });
   }
   return rocks;
+}
+
+export const MESH_SEG = 42;
+let meshPos = null;
+
+function buildMeshCache() {
+  if (meshPos) return;
+  const seg = MESH_SEG;
+  const n = seg + 1;
+  meshPos = new Float32Array(6 * n * n * 3);
+  for (let face = 0; face < 6; face++) {
+    const grid = faceGrid(face, seg);
+    meshPos.set(grid.positions, face * n * n * 3);
+  }
+}
+
+function triPoint(face, i, j) {
+  const n = MESH_SEG + 1;
+  const k = (face * n * n + j * n + i) * 3;
+  return { x: meshPos[k], y: meshPos[k + 1], z: meshPos[k + 2] };
+}
+
+function rayOnTriangle(dir, p0, p1, p2) {
+  const e1 = sub(p1, p0);
+  const e2 = sub(p2, p0);
+  const h = cross(dir, e2);
+  const a = dot(e1, h);
+  if (Math.abs(a) < 1e-8) return null;
+  const f = 1 / a;
+  const s = f * dot({ x: -p0.x, y: -p0.y, z: -p0.z }, h);
+  if (s < -0.02 || s > 1.02) return null;
+  const q = cross({ x: -p0.x, y: -p0.y, z: -p0.z }, e1);
+  const u = f * dot(dir, q);
+  if (u < -0.02 || s + u > 1.04) return null;
+  const t = f * dot(e2, q);
+  if (t < RADIUS * 0.4) return null;
+  return scale(dir, t);
+}
+
+export function meshSurface(dir) {
+  buildMeshCache();
+  const seg = MESH_SEG;
+  const map = cubeMap(dir);
+  const fu = Math.min(seg - 0.0001, map.u * seg);
+  const fv = Math.min(seg - 0.0001, map.v * seg);
+  const i = Math.floor(fu);
+  const j = Math.floor(fv);
+  const tu = fu - i;
+  const tv = fv - j;
+  const p00 = triPoint(map.face, i, j);
+  const p10 = triPoint(map.face, i + 1, j);
+  const p01 = triPoint(map.face, i, j + 1);
+  const p11 = triPoint(map.face, i + 1, j + 1);
+  const unit = norm(dir);
+  const hit = tu + tv <= 1
+    ? rayOnTriangle(unit, p00, p01, p10)
+    : rayOnTriangle(unit, p10, p01, p11);
+  return hit || surface(dir);
 }
 
 export function faceGrid(face, seg) {
