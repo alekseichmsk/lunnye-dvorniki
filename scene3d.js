@@ -95,12 +95,22 @@ function rememberRest(root) {
   });
 }
 
-function toLambert(root) {
-  const convert = (material) => new THREE.MeshLambertMaterial({
-    color: material.color ? material.color.clone() : new THREE.Color(0xffffff),
-    map: material.map || null,
-    emissive: material.emissive ? material.emissive.clone() : new THREE.Color(0x000000),
-  });
+function toSurface(root) {
+  const convert = (material) => {
+    const emissive = material.emissive ? material.emissive.clone() : new THREE.Color(0x000000);
+    const named = material.name || "";
+    const glowing = /skin|lamp|teal|visor/i.test(named) || emissive.r + emissive.g + emissive.b > 0.2;
+    return new THREE.MeshStandardMaterial({
+      name: named,
+      color: material.color ? material.color.clone() : new THREE.Color(0xffffff),
+      map: material.map || null,
+      emissive,
+      emissiveIntensity: glowing ? Math.max(material.emissiveIntensity || 1, 1.35) : (material.emissiveIntensity || 1),
+      roughness: material.roughness ?? 0.58,
+      metalness: Math.min(material.metalness ?? 0.04, glowing ? 0.85 : 0.35),
+      envMapIntensity: glowing ? 1.15 : 0.55,
+    });
+  };
   root.traverse((obj) => {
     if (!obj.isMesh || !obj.material) return;
     obj.material = Array.isArray(obj.material) ? obj.material.map(convert) : convert(obj.material);
@@ -179,6 +189,14 @@ export async function createScene(canvas) {
   scene.add(sun.target);
   const fill = new THREE.DirectionalLight(0xfff4ea, 0.45);
   scene.add(fill);
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.HemisphereLight(0xffd5e4, 0xc45a32, 1.4));
+  const envSun = new THREE.DirectionalLight(0xfff6ea, 2.2);
+  envSun.position.set(6, 10, 3);
+  envScene.add(envSun);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+  pmrem.dispose();
 
   const loader = new GLTFLoader();
   const templates = {};
@@ -188,8 +206,8 @@ export async function createScene(canvas) {
     try {
       const gltf = await loader.loadAsync(`assets/models/${name}.glb`);
       const root = gltf.scene;
-      if (name === "janitor") skinIndex = materialSlot(root, "helmet", /skin/i);
-      toLambert(root);
+      if (name === "janitor") skinIndex = materialSlot(root, "visor", /skin/i);
+      toSurface(root);
       if (!name.startsWith("tool_")) freezeHierarchy(root);
       if (name === "janitor") faceLocal = measureFace(root, skinIndex);
       rememberRest(root);
@@ -533,10 +551,16 @@ export async function createScene(canvas) {
       scene.fog.near = 2000;
       scene.fog.far = 2600;
     } else {
-      desired = focus.clone().addScaledVector(back, -3.35).addScaledVector(up, 1.72);
-      look = focus.clone().addScaledVector(back, 4.2).addScaledVector(up, 0.72);
-      scene.fog.near = 90;
-      scene.fog.far = 340;
+      const orbit = Planet.basis(pos, state.camYaw || 0);
+      const ahead = new THREE.Vector3(orbit.forward.x, orbit.forward.y, orbit.forward.z);
+      const dist = Math.max(1.6, state.camDist || 4.2);
+      const pitch = state.camPitch == null ? 0.5 : state.camPitch;
+      desired = focus.clone()
+        .addScaledVector(ahead, -Math.cos(pitch) * dist)
+        .addScaledVector(up, Math.sin(pitch) * dist);
+      look = focus.clone().addScaledVector(ahead, Math.min(1.5, dist * 0.2)).addScaledVector(up, 0.62);
+      scene.fog.near = 28 + dist * 8;
+      scene.fog.far = 180 + dist * 28;
     }
     if (!reduceMotion && shake > 0 && !state.overview) {
       desired.x += Math.sin(anim * 40) * shake * 0.02;
@@ -633,10 +657,13 @@ function groupCentroid(mesh, slot) {
 }
 
 function measureFace(root, slot) {
+  const visor = findNamed(root, "visor");
   const helmet = findNamed(root, "helmet");
   const body = findNamed(root, "body");
-  if (!helmet || !body || !helmet.isMesh || !body.isMesh) return new THREE.Vector3(0, 0.2, -1);
-  return groupCentroid(helmet, slot).sub(groupCentroid(body, -1));
+  const faceMesh = visor && visor.isMesh ? visor : helmet;
+  if (!faceMesh || !body || !faceMesh.isMesh || !body.isMesh) return new THREE.Vector3(0, 0.2, -1);
+  const faceSlot = faceMesh === helmet ? slot : -1;
+  return groupCentroid(faceMesh, faceSlot).sub(groupCentroid(body, -1));
 }
 
 const HELD = {

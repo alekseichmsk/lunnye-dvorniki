@@ -294,6 +294,26 @@ async function main() {
     assert(saved.money >= 0 && saved.backpackLevel >= 1, "save should keep the upgrade");
     assert(typeof saved.lastSave === "number", "lastSave");
     assert(typeof saved.dust === "string" && saved.dust.length > 100, "planet dust saved");
+    const camCheck = await ev(`
+      const before = __LUNAR.testing.camera();
+      __LUNAR.testing.orbit(140, -40);
+      for (let i = 0; i < 8; i++) __LUNAR.tick(0.05);
+      __LUNAR.testing.zoom(0.02);
+      __LUNAR.save();
+      const cam = __LUNAR.testing.camera();
+      const stored = JSON.parse(localStorage.getItem(${JSON.stringify("mars-dvorniki-save-v1")}));
+      return {
+        dyaw: Math.abs(cam.yaw - before.yaw),
+        pitch: cam.pitch,
+        dist: cam.dist,
+        savedDist: stored.camera && stored.camera.dist,
+        savedYaw: stored.camera && stored.camera.yaw,
+      };
+    `);
+    assert(camCheck.dyaw > 0.3, "orbit should change yaw " + JSON.stringify(camCheck));
+    assert(camCheck.dist >= 1.7 && camCheck.dist <= 2.2, "zoom should clamp near " + camCheck.dist);
+    assert(Math.abs(camCheck.savedDist - camCheck.dist) < 0.05, "camera dist saved");
+    assert(typeof camCheck.savedYaw === "number", "camera yaw saved");
 
     const stamp = saved.lastSave;
     await sleep(6200);

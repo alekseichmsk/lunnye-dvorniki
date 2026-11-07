@@ -25,6 +25,7 @@
 </head>
 <body>
   <div id="app">
+    <div class="hud-top">
     <header class="top">
       <div class="brand">
         <img src="assets/helmet.svg" width="40" height="40" alt="">
@@ -49,6 +50,7 @@
     </div>
     <div class="bar thick" aria-hidden="true"><div id="sector-bar"></div></div>
     <div id="strip" class="strip" aria-label="Края Марса"></div>
+    </div>
 
     <main id="stage">
       <canvas id="view" aria-label="Поверхность Марса"></canvas>
@@ -56,6 +58,7 @@
       <div id="banner" role="status"></div>
     </main>
 
+    <div class="hud-bottom">
     <div class="pack">
       <div class="pack-top">
         <span><img src="assets/icon-pack.svg" width="16" height="16" alt=""> Рюкзак</span>
@@ -81,6 +84,7 @@
         </div>
       </div>
     </section>
+    </div>
   </div>
 
   <div id="shop" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="shop-title">

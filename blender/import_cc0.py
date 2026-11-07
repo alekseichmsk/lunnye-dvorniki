@@ -332,7 +332,7 @@ def build_depot():
 
 
 def main():
-    build_janitor()
+    # The sweeper is an original model from build_models.py. Do not overwrite it.
     build_vehicle("rover.glb", "vehicle_pyh", {
         "metal": YELLOW, "metalRed": CORAL, "metalDark": INK, "dark": INK,
     }, 1.15, 0)

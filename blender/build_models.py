@@ -50,15 +50,18 @@ def fresh():
     scene.unit_settings.length_unit = "METERS"
 
 
-def material(name, color, rough=0.48, emit=0.0):
+def material(name, color, rough=0.48, emit=0.0, metal=0.0, emit_color=None):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Roughness"].default_value = rough
+    if "Metallic" in bsdf.inputs:
+        bsdf.inputs["Metallic"].default_value = metal
+    glow = emit_color or color
     emit_name = "Emission Color" if "Emission Color" in bsdf.inputs else "Emission"
     if emit > 0 and emit_name in bsdf.inputs:
-        bsdf.inputs[emit_name].default_value = color
+        bsdf.inputs[emit_name].default_value = glow
         if "Emission Strength" in bsdf.inputs:
             bsdf.inputs["Emission Strength"].default_value = emit
     return mat
@@ -221,56 +224,88 @@ def shift_mesh(obj, offset):
 
 
 def build_janitor():
+    """Cute Mars sweeper. Face looks along +Y so glTF forward (-Z) is the visor."""
     fresh()
-    suit = material("suit", C["suit"])
-    visor_m = material("visor", C["visor"], 0.18, emit=0.55)
-    scarf_m = material("scarf", C["scarf"])
-    boot_m = material("boot", C["boot"], 0.6)
-    white = material("white", C["white"])
-    ink = material("ink", C["ink"])
+    orange = material("orange", (0.95, 0.38, 0.16, 1), rough=0.46, metal=0.08)
+    white = material("white", (0.96, 0.95, 0.93, 1), rough=0.32, metal=0.12)
+    ink = material("ink", (0.12, 0.08, 0.14, 1), rough=0.55, metal=0.2)
+    suit = material("suit", (0.93, 0.42, 0.18, 1), rough=0.42, metal=0.06)
+    pad = material("pad", (0.98, 0.93, 0.88, 1), rough=0.38, metal=0.04)
+    seam = material("seam", (0.45, 0.18, 0.12, 1), rough=0.6)
+    glove_m = material("glove", (0.98, 0.96, 0.93, 1), rough=0.4, metal=0.05)
+    boot_m = material("boot", (0.93, 0.30, 0.14, 1), rough=0.48, metal=0.1)
+    sole = material("sole", (0.16, 0.10, 0.12, 1), rough=0.7)
+    # Named "skin" so the facing test can find the visor.
+    visor_m = material("skin", (0.55, 0.95, 1.0, 1), rough=0.06, metal=0.82, emit=1.6, emit_color=(0.35, 0.85, 1.0, 1))
+    lamp_m = material("lamp", (1.0, 0.82, 0.35, 1), rough=0.25, emit=3.2, emit_color=(1.0, 0.78, 0.3, 1))
+    teal = material("teal", (0.2, 0.85, 0.78, 1), rough=0.3, emit=1.8, emit_color=(0.3, 0.95, 0.85, 1))
     root = empty("janitor")
 
-    def leg(name, side):
-        # Origin stays on the hip; the mesh hangs below it.
-        hip = (side * 0.12, 0.0, 0.78)
-        mesh = cylinder(name, suit, radius=0.085, depth=0.5, loc=hip, vertices=8)
-        shift_mesh(mesh, (0, 0.03, -0.32))
-        boot = cube(name + "_boot", boot_m, (0.16, 0.26, 0.12), (hip[0], 0.08, 0.07))
-        parent_to(boot, mesh)
-        return mesh
+    def hang_cyl(name, mat, radius, length, origin, verts=12):
+        obj = cylinder(name, mat, radius=radius, depth=length, loc=origin, vertices=verts)
+        shift_mesh(obj, (0, 0, -length / 2))
+        return obj
+
+    body = sphere("body", suit, 0.30, (0, 0.02, 0.96), 22, 14, (1.05, 0.82, 1.12))
+    chest = sphere("chest", pad, 0.18, (0, 0.22, 1.02), 16, 10, (1.2, 0.62, 0.9))
+    belly_seam = primitive("torus", "belly_seam", seam, major_radius=0.22, minor_radius=0.018, major_segments=18, minor_segments=6, location=(0, 0.02, 0.86))
+    collar = primitive("torus", "collar", white, major_radius=0.16, minor_radius=0.028, major_segments=16, minor_segments=6, location=(0, 0.04, 1.22))
+    shoulder_l = sphere("shoulder_l", orange, 0.09, (-0.28, 0.0, 1.16), 12, 8)
+    shoulder_r = sphere("shoulder_r", orange, 0.09, (0.28, 0.0, 1.16), 12, 8)
+
+    helmet = sphere("helmet", white, 0.34, (0, 0.02, 1.46), 24, 16)
+    visor = sphere("visor", visor_m, 0.24, (0, 0.32, 1.44), 20, 12, (1.35, 0.72, 0.82))
+    glow = primitive("torus", "visor_glow", teal, major_radius=0.2, minor_radius=0.02, major_segments=18, minor_segments=6, location=(0, 0.34, 1.44), rotation=(math.radians(90), 0, 0))
+    ear_l = sphere("ear_l", white, 0.06, (-0.32, 0.0, 1.46), 10, 6)
+    ear_r = sphere("ear_r", white, 0.06, (0.32, 0.0, 1.46), 10, 6)
+    antenna = cylinder("antenna", ink, 0.012, 0.16, (0.12, -0.06, 1.84), 6)
+    bulb = sphere("bulb", lamp_m, 0.035, (0.12, -0.06, 1.94), 8, 6)
+
+    pack = sphere("backpack", white, 0.22, (0, -0.34, 1.04), 16, 10, (0.95, 0.7, 1.1))
+    pack_pad = cube("backpack_pad", orange, (0.26, 0.08, 0.32), (0, -0.46, 1.04))
+    light_l = sphere("pack_light_l", lamp_m, 0.04, (-0.09, -0.52, 1.14), 8, 6)
+    light_r = sphere("pack_light_r", teal, 0.04, (0.09, -0.52, 1.14), 8, 6)
+    hose = cylinder("hose", ink, 0.018, 0.22, (0.16, -0.16, 1.18), 8, rot=(0, math.radians(70), math.radians(20)))
 
     def arm(name, side):
-        shoulder = (side * 0.32, 0.04, 1.18)
-        mesh = cylinder(name, suit, radius=0.065, depth=0.34, loc=shoulder, vertices=8)
-        shift_mesh(mesh, (side * 0.02, 0.08, -0.22))
-        glove = sphere(name + "_glove", white, 0.075, (shoulder[0] + side * 0.04, 0.2, 0.86), 8, 5)
-        parent_to(glove, mesh)
-        return mesh
+        shoulder = (side * 0.36, 0.04, 1.18)
+        upper = hang_cyl(name, suit, 0.07, 0.30, shoulder, 12)
+        seam_band = primitive("torus", name + "_seam", seam, major_radius=0.072, minor_radius=0.012, major_segments=12, minor_segments=6, location=(shoulder[0], shoulder[1], shoulder[2] - 0.16))
+        parent_to(seam_band, upper)
+        fore = hang_cyl(name + "_fore", orange, 0.055, 0.24, (shoulder[0] + side * 0.02, 0.08, shoulder[2] - 0.30), 10)
+        parent_to(fore, upper)
+        glove = sphere(name + "_glove", glove_m, 0.07, (shoulder[0] + side * 0.03, 0.14, shoulder[2] - 0.52), 12, 8)
+        parent_to(glove, upper)
+        return upper, glove
 
-    body = cube("body", suit, (0.52, 0.36, 0.58), (0, 0, 0.98))
-    belly = sphere("belly", suit, 0.26, (0, 0.04, 0.92), 10, 7, (1.05, 0.75, 0.9))
-    pack = cube("backpack", white, (0.34, 0.16, 0.36), (0, -0.26, 1.05))
-    pack_flap = cube("backpack_flap", scarf_m, (0.2, 0.05, 0.14), (0, -0.34, 1.12))
-    scarf = primitive(
-        "torus", "scarf", scarf_m,
-        major_radius=0.2, minor_radius=0.055,
-        major_segments=12, minor_segments=6,
-        location=(0, 0.04, 1.28),
-    )
-    helmet = sphere("helmet", suit, 0.32, (0, 0.02, 1.52), 12, 8)
-    visor = sphere("visor", visor_m, 0.2, (0, 0.2, 1.5), 10, 6, (1.25, 0.45, 0.8))
-    shine = sphere("shine", white, 0.05, (-0.12, 0.12, 1.7), 6, 4)
-    antenna = cylinder("antenna", ink, 0.018, 0.18, (0.14, -0.04, 1.84), 6)
-    bulb = sphere("antenna_bulb", scarf_m, 0.045, (0.14, -0.04, 1.96), 6, 4)
+    arm_l, _glove_l = arm("arm_l", -1)
+    arm_r, glove_r = arm("arm_r", 1)
+    bpy.context.view_layer.update()
+    socket = empty("tool_socket", glove_r.matrix_world.translation)
+    parent_to(socket, arm_r)
+
+    def leg(name, side):
+        hip = (side * 0.12, 0.0, 0.70)
+        thigh = hang_cyl(name, suit, 0.09, 0.32, hip, 12)
+        knee = sphere(name + "_knee", pad, 0.07, (hip[0], 0.02, hip[2] - 0.32), 10, 6)
+        parent_to(knee, thigh)
+        shin = hang_cyl(name + "_shin", orange, 0.07, 0.26, (hip[0], 0.02, hip[2] - 0.34), 10)
+        parent_to(shin, thigh)
+        boot = sphere(name + "_boot", boot_m, 0.09, (hip[0], 0.06, 0.08), 12, 8, (1.05, 1.35, 0.7))
+        parent_to(boot, thigh)
+        boot_sole = cube(name + "_sole", sole, (0.12, 0.18, 0.04), (hip[0], 0.07, 0.03))
+        parent_to(boot_sole, thigh)
+        return thigh
 
     leg_l = leg("leg_l", -1)
     leg_r = leg("leg_r", 1)
-    arm_l = arm("arm_l", -1)
-    arm_r = arm("arm_r", 1)
-    socket = empty("tool_socket", (0.42, 0.24, 0.84))
-    parent_to(socket, arm_r)
 
-    for part in (body, belly, pack, pack_flap, scarf, helmet, visor, shine, antenna, bulb, leg_l, leg_r, arm_l, arm_r):
+    for part in (
+        body, chest, belly_seam, collar, shoulder_l, shoulder_r,
+        helmet, visor, glow, ear_l, ear_r, antenna, bulb,
+        pack, pack_pad, light_l, light_r, hose,
+        arm_l, arm_r, leg_l, leg_r,
+    ):
         parent_to(part, root)
     export_root(root, "janitor")
 

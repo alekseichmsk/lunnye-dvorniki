@@ -4,6 +4,7 @@ import * as Planet from "./planet.js";
 (() => {
   "use strict";
 
+  const CAM = { pitchMin: 0.26, pitchMax: 1.18, distMin: 1.7, distMax: 11 };
   const SAVE_KEY = "mars-dvorniki-save-v1";
   const OLD_SAVE_KEY = "lunnye-dvorniki-save-v1";
   const COLS = 30;
@@ -342,6 +343,12 @@ import * as Planet from "./planet.js";
       cleaned: 0,
       pos: { x: sp.x, y: sp.y, z: sp.z },
       heading: 0.6,
+      camYaw: 0.6,
+      camPitch: 0.5,
+      camDist: 4.2,
+      camYawTo: 0.6,
+      camPitchTo: 0.5,
+      camDistTo: 4.2,
       dust: null,
       discovered: { plains: true },
       backpack: { mass: 0, worth: 0 },
@@ -714,6 +721,22 @@ import * as Planet from "./planet.js";
     return t;
   }
 
+  function dampCamera(dt) {
+    const k = 1 - Math.exp(-9 * dt);
+    state.camYaw += wrapAngle((state.camYawTo || 0) - (state.camYaw || 0)) * k;
+    state.camPitch += ((state.camPitchTo || 0.5) - (state.camPitch || 0.5)) * k;
+    state.camDist += ((state.camDistTo || 4.2) - (state.camDist || 4.2)) * k;
+  }
+
+  function nudgeOrbit(dx, dy) {
+    state.camYawTo = (state.camYawTo || 0) - dx * 0.0055;
+    state.camPitchTo = Math.max(CAM.pitchMin, Math.min(CAM.pitchMax, (state.camPitchTo || 0.5) + dy * 0.0042));
+  }
+
+  function nudgeZoom(factor) {
+    state.camDistTo = Math.max(CAM.distMin, Math.min(CAM.distMax, (state.camDistTo || 4.2) * factor));
+  }
+
   function uiBlocked() {
     return !shopEl.classList.contains("hidden") || !modalEl.classList.contains("hidden");
   }
@@ -757,8 +780,9 @@ import * as Planet from "./planet.js";
     frameFacing = vec.x >= 0 ? 1 : -1;
     frameCleaning = false;
     if (!uiBlocked()) {
-      const frame = Planet.basis(state.pos, state.heading || 0);
-      const wish = Planet.add(Planet.scale(frame.right, vec.x), Planet.scale(frame.forward, -vec.y));
+      dampCamera(dt);
+      const camFrame = Planet.basis(state.pos, state.camYaw || 0);
+      const wish = Planet.add(Planet.scale(camFrame.right, vec.x), Planet.scale(camFrame.forward, -vec.y));
       if (wishMag > 0.02) {
         const target = Planet.headingFromWish(state.pos, wish, state.heading);
         const delta = wrapAngle(target - (state.heading || 0));
@@ -1084,6 +1108,11 @@ function finishBuy() {
       cleaned: state.cleaned,
       pos: { ...state.pos },
       heading: state.heading || 0,
+      camera: {
+        yaw: state.camYawTo,
+        pitch: state.camPitchTo,
+        dist: state.camDistTo,
+      },
       discovered: { ...state.discovered },
       dust: encodeBytes(quantizeDust(state.dust.amount)),
       initial: Array.from(state.dust.initial),
@@ -1222,6 +1251,13 @@ function finishBuy() {
     const loaded = data.pos && Number.isFinite(data.pos.x) ? Planet.surface(data.pos) : sp;
     state.pos = { x: loaded.x, y: loaded.y, z: loaded.z };
     state.heading = num(data.heading, 0.6, -Math.PI * 4, Math.PI * 4);
+    const cam = data.camera || {};
+    state.camYawTo = num(cam.yaw, state.heading, -40, 40);
+    state.camYaw = state.camYawTo;
+    state.camPitchTo = num(cam.pitch, 0.5, CAM.pitchMin, CAM.pitchMax);
+    state.camPitch = state.camPitchTo;
+    state.camDistTo = num(cam.dist, 4.2, CAM.distMin, CAM.distMax);
+    state.camDist = state.camDistTo;
   }
 
   function migrateOldSave(data) {
@@ -1779,21 +1815,66 @@ function finishBuy() {
   }
 
   function bindNoZoom() {
-    document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
-    document.addEventListener("contextmenu", (e) => e.preventDefault());
-    document.addEventListener("selectstart", (e) => e.preventDefault());
-    document.addEventListener("dblclick", (e) => e.preventDefault());
+    const view = $("view");
+    const stop = (e) => e.preventDefault();
+    view.addEventListener("gesturestart", stop, { passive: false });
+    view.addEventListener("gesturechange", stop, { passive: false });
+    view.addEventListener("contextmenu", stop);
+    document.addEventListener("contextmenu", stop);
+    document.addEventListener("selectstart", stop);
     let lastTouch = 0;
-    document.addEventListener("touchend", (e) => {
+    view.addEventListener("touchend", (e) => {
       const now = Date.now();
       if (now - lastTouch < 320) e.preventDefault();
       lastTouch = now;
     }, { passive: false });
   }
 
+  function bindOrbit() {
+    const view = $("view");
+    const pointers = new Map();
+    let pinchGap = 0;
+    function gap() {
+      const pts = [...pointers.values()];
+      if (pts.length < 2) return 0;
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    }
+    view.addEventListener("pointerdown", (e) => {
+      if (uiBlocked()) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      view.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) pinchGap = gap();
+    });
+    view.addEventListener("pointermove", (e) => {
+      if (!pointers.has(e.pointerId) || uiBlocked()) return;
+      const prev = pointers.get(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) {
+        const next = gap();
+        if (pinchGap > 10 && next > 10) nudgeZoom(pinchGap / next);
+        pinchGap = next;
+        return;
+      }
+      nudgeOrbit(e.clientX - prev.x, e.clientY - prev.y);
+    });
+    const end = (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinchGap = 0;
+    };
+    view.addEventListener("pointerup", end);
+    view.addEventListener("pointercancel", end);
+    view.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const delta = Math.max(-90, Math.min(90, e.deltaY));
+      nudgeZoom(Math.exp(delta * 0.0015));
+    }, { passive: false });
+  }
+
   function bind() {
     bindFullscreen();
     bindNoZoom();
+    bindOrbit();
     const MOVE = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
     addEventListener("keydown", (e) => {
       if (MOVE.has(e.code) || e.code === "Space") e.preventDefault();
@@ -1941,6 +2022,19 @@ function finishBuy() {
         facing() {
           const forward = Planet.basis(state.pos, state.heading || 0).forward;
           return sceneApi ? sceneApi.faceDot(forward) : 0;
+        },
+        camera() {
+          return { yaw: state.camYawTo, pitch: state.camPitchTo, dist: state.camDistTo, shown: state.camYaw };
+        },
+        orbit(dx, dy) { nudgeOrbit(dx, dy); },
+        zoom(factor) { nudgeZoom(factor); },
+        setCamera(yaw, pitch, dist) {
+          state.camYawTo = yaw;
+          state.camPitchTo = Math.max(CAM.pitchMin, Math.min(CAM.pitchMax, pitch));
+          state.camDistTo = Math.max(CAM.distMin, Math.min(CAM.distMax, dist));
+          state.camYaw = state.camYawTo;
+          state.camPitch = state.camPitchTo;
+          state.camDist = state.camDistTo;
         },
         pause(on) { paused = !!on; },
         wave() {

@@ -4,7 +4,7 @@
 
 | Файл | Что это | Источник | Автор | Лицензия |
 | --- | --- | --- | --- | --- |
-| `janitor.glb` | Дворник, отдельные руки и ноги, гнездо `tool_socket` | [Space Kit 2.0](https://kenney.nl/assets/space-kit), модель `astronautA` | Kenney (kenney.nl) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `janitor.glb` | Марсианский дворник: шлем, визор, рюкзак, перчатки, ботинки, гнездо `tool_socket` | Смоделирован в Blender для этой игры | Этот проект | Можно использовать вместе с игрой |
 | `vehicle_pyh.glb` | Марсоход «Пых» | Space Kit, `rover` (штатные колёса, без второй пары) | Kenney | CC0 1.0 |
 | `vehicle_blin.glb` | Каток «Блин» | Space Kit, `craft_miner`, плюс колёса | Kenney | CC0 1.0 |
 | `vehicle_iskra.glb` | Гонщик «Искра» | Space Kit, `craft_racer`, плюс колёса | Kenney | CC0 1.0 |
