@@ -202,6 +202,9 @@ async function main() {
     const title = await ev("document.title");
     const models = await ev("window.__LUNAR.modelsLoaded === true");
     assert(models, "3D models did not load");
+    await ev("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    const facing = await ev("__LUNAR.testing.facing()");
+    assert(facing > 0.5, "character should face its movement, dot " + facing);
     assert(title === "Марсианские дворники", "title " + title);
     const heading = await ev("document.querySelector('h1').textContent");
     assert(heading.includes("Марсианские дворники"), "heading");

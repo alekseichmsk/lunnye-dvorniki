@@ -1,4 +1,4 @@
-import { createScene } from "./scene3d.js";
+import { createScene, sweepCycle } from "./scene3d.js";
 import * as Planet from "./planet.js";
 
 (() => {
@@ -123,6 +123,7 @@ import * as Planet from "./planet.js";
   let frameCleaning = false;
   let frameMoving = false;
   let frameFacing = 1;
+  let lastDt = 1 / 60;
   let lastHere = -2;
   let toastTimer = 0;
   let lastToast = "";
@@ -349,6 +350,8 @@ import * as Planet from "./planet.js";
       launchLock: 0,
       sweepCd: 0,
       fullCd: 0,
+      glide: 0,
+      sweepBeat: -1,
     };
   }
 
@@ -568,15 +571,15 @@ import * as Planet from "./planet.js";
     }
   }
 
-  function spawnPuff(pos, gold) {
+  function spawnPuff(pos, gold, size) {
     if (particles.length > 70) return;
     const up = Planet.up(pos);
     particles.push({
       x: pos.x, y: pos.y, z: pos.z,
-      vx: up.x * 0.6, vy: up.y * 0.6, vz: up.z * 0.6,
+      vx: up.x * 0.8, vy: up.y * 0.8, vz: up.z * 0.8,
       age: 0,
-      life: 0.45,
-      size: 3,
+      life: 0.42,
+      size: size || 3,
       color: gold ? "#ffd23f" : "#e7b089",
     });
   }
@@ -684,26 +687,31 @@ import * as Planet from "./planet.js";
     }
   }
 
+  function shapeStick(x, y) {
+    const m = Math.hypot(x, y);
+    const dead = 0.16;
+    if (m <= dead) return { x: 0, y: 0 };
+    const t = Math.min(1, (m - dead) / (1 - dead));
+    const curved = t * t * (3 - 2 * t);
+    const s = curved / m;
+    return { x: x * s, y: y * s };
+  }
+
   function movementVec() {
-    if (stick.manual) {
-      const m = Math.hypot(stick.manual.x, stick.manual.y);
-      if (m < 0.08) return { x: 0, y: 0 };
-      return { x: stick.manual.x / m, y: stick.manual.y / m };
-    }
-    if (stick.active) {
-      const m = Math.hypot(stick.x, stick.y);
-      if (m < 0.12) return { x: 0, y: 0 };
-      return { x: stick.x / m, y: stick.y / m };
-    }
+    if (stick.manual) return shapeStick(stick.manual.x, stick.manual.y);
+    if (stick.active) return shapeStick(stick.x, stick.y);
     let x = 0;
     let y = 0;
     if (keys.has("KeyA") || keys.has("ArrowLeft")) x -= 1;
     if (keys.has("KeyD") || keys.has("ArrowRight")) x += 1;
     if (keys.has("KeyW") || keys.has("ArrowUp")) y -= 1;
     if (keys.has("KeyS") || keys.has("ArrowDown")) y += 1;
-    if (x === 0 && y === 0) return { x: 0, y: 0 };
-    const m = Math.hypot(x, y);
-    return { x: x / m, y: y / m };
+    return shapeStick(x, y);
+  }
+
+  function wrapAngle(a) {
+    const t = Math.atan2(Math.sin(a), Math.cos(a));
+    return t;
   }
 
   function uiBlocked() {
@@ -739,20 +747,33 @@ import * as Planet from "./planet.js";
   function update(dt) {
     if (paused) return;
     dt = Math.max(0, Math.min(0.1, dt));
+    lastDt = dt;
     anim += dt;
     state.launchLock = Math.max(0, state.launchLock - dt);
     if (!reduceMotion) shake = Math.max(0, shake - dt * 16);
     frameStats = combatStats();
     const vec = uiBlocked() ? { x: 0, y: 0 } : movementVec();
-    frameMoving = vec.x !== 0 || vec.y !== 0;
+    const wishMag = Math.hypot(vec.x, vec.y);
     frameFacing = vec.x >= 0 ? 1 : -1;
     frameCleaning = false;
     if (!uiBlocked()) {
       const frame = Planet.basis(state.pos, state.heading || 0);
       const wish = Planet.add(Planet.scale(frame.right, vec.x), Planet.scale(frame.forward, -vec.y));
-      if (frameMoving) {
-        Planet.moveAlong(state.pos, wish, meters(frameStats.speed) * dt);
-        state.heading = Planet.headingFromWish(state.pos, wish, state.heading);
+      if (wishMag > 0.02) {
+        const target = Planet.headingFromWish(state.pos, wish, state.heading);
+        const delta = wrapAngle(target - (state.heading || 0));
+        const maxTurn = 5.2 * dt;
+        state.heading = (state.heading || 0) + Math.max(-maxTurn, Math.min(maxTurn, delta));
+      }
+      const targetSpeed = wishMag * meters(frameStats.speed);
+      const rate = wishMag > 0.02 ? 16 : 20;
+      const glide = state.glide || 0;
+      const step = Math.max(-rate * dt, Math.min(rate * dt, targetSpeed - glide));
+      state.glide = Math.max(0, glide + step);
+      frameMoving = state.glide > 0.15;
+      if (state.glide > 0.02) {
+        const moved = Planet.basis(state.pos, state.heading || 0);
+        Planet.moveAlong(state.pos, moved.forward, state.glide * dt);
       }
       const cap = capacity();
       const before = state.backpack.mass;
@@ -761,10 +782,17 @@ import * as Planet from "./planet.js";
         frameCleaning = true;
         state.seenDust = true;
         state.cleaned += taken;
-        state.sweepCd -= dt;
-        if (state.sweepCd <= 0) {
-          sweeps.push({ age: 0, life: 0.32 });
-          state.sweepCd = 0.12;
+        const beat = Math.floor(sweepCycle(frameStats.tool.id, anim, true));
+        if (beat !== state.sweepBeat) {
+          state.sweepBeat = beat;
+          const swung = Planet.basis(state.pos, state.heading || 0);
+          const side = Math.sin(anim * sweepCycle(frameStats.tool.id, 1, true) * Math.PI);
+          const at = Planet.add(
+            state.pos,
+            Planet.add(Planet.scale(swung.forward, 0.9), Planet.scale(swung.right, side * 0.55)),
+          );
+          spawnPuff(at, false, 7);
+          spawnPuff(Planet.add(at, Planet.scale(swung.right, 0.18)), false, 5);
         }
       }
       if (state.backpack.mass >= cap - 0.4 && taken <= 0 && dustUnderPlayer() > 8) {
@@ -778,6 +806,9 @@ import * as Planet from "./planet.js";
         state.seenFullHint = true;
       }
       updateUnload(dt);
+    } else {
+      frameMoving = false;
+      state.glide = Math.max(0, (state.glide || 0) - 20 * dt);
     }
     updateRobots(dt);
     updateParticles(dt);
@@ -1662,6 +1693,7 @@ function finishBuy() {
       floaters,
       rockets,
       anim,
+      dt: lastDt,
       shake,
       frameStats,
       frameMoving,
@@ -1714,7 +1746,54 @@ function finishBuy() {
     };
   }
 
+  function bindFullscreen() {
+    const btn = $("fullscreen");
+    const root = document.documentElement;
+    function active() {
+      return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+    function label() {
+      const on = !!active();
+      btn.textContent = on ? "⤡" : "⛶";
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.setAttribute("aria-label", on ? "Выйти из полного экрана" : "На весь экран");
+    }
+    btn.addEventListener("click", () => {
+      if (active()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) exit.call(document);
+        return;
+      }
+      const req = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+      if (!req) {
+        toast("На iPhone: «Поделиться» → «На экран Домой». Игра откроется на весь экран.");
+        return;
+      }
+      Promise.resolve(req.call(root)).catch(() => {
+        toast("На iPhone: «Поделиться» → «На экран Домой». Игра откроется на весь экран.");
+      });
+    });
+    document.addEventListener("fullscreenchange", label);
+    document.addEventListener("webkitfullscreenchange", label);
+    label();
+  }
+
+  function bindNoZoom() {
+    document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("selectstart", (e) => e.preventDefault());
+    document.addEventListener("dblclick", (e) => e.preventDefault());
+    let lastTouch = 0;
+    document.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTouch < 320) e.preventDefault();
+      lastTouch = now;
+    }, { passive: false });
+  }
+
   function bind() {
+    bindFullscreen();
+    bindNoZoom();
     const MOVE = new Set(["KeyA", "KeyD", "KeyW", "KeyS", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
     addEventListener("keydown", (e) => {
       if (MOVE.has(e.code) || e.code === "Space") e.preventDefault();
@@ -1858,6 +1937,17 @@ function finishBuy() {
         setRunCredits(n) { state.runCredits = n; updateUI(); if (!shopEl.classList.contains("hidden")) renderShop(); },
         holdSave(on) { savesEnabled = !!on; },
         overview(on) { state.overview = !!on; },
+        setTool(i) { state.tool = Math.max(0, Math.min(TOOLS.length - 1, i | 0)); frameStats = combatStats(); },
+        facing() {
+          const forward = Planet.basis(state.pos, state.heading || 0).forward;
+          return sceneApi ? sceneApi.faceDot(forward) : 0;
+        },
+        pause(on) { paused = !!on; },
+        wave() {
+          const motion = sweepCycle(TOOLS[state.tool].id, 1, frameCleaning || frameMoving);
+          return Math.sin(anim * motion * Math.PI);
+        },
+        toolId() { return TOOLS[state.tool].id; },
       },
     };
 

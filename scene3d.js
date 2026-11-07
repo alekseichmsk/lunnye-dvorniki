@@ -2,6 +2,32 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as Planet from "./planet.js";
 
+// Motions are in cycles of the arm. Scrub is a fast little brush, sweep is a
+// side-to-side broom stroke, push is the vacuum going out and back.
+const TOOL_MOTION = {
+  brush: { style: "scrub", freq: 8.5, pitch: 0.38, roll: 0.72 },
+  broom: { style: "sweep", freq: 3.1, pitch: 0.22, roll: 0.85 },
+  mop: { style: "sweep", freq: 2.6, pitch: 0.2, roll: 0.78 },
+  vac: { style: "push", freq: 2.5, pitch: 0.62, roll: 0.08 },
+  ind: { style: "push", freq: 2.2, pitch: 0.55, roll: 0.06 },
+  turbo: { style: "sweep", freq: 3.6, pitch: 0.28, roll: 0.7 },
+  cyclone: { style: "push", freq: 2.4, pitch: 0.58, roll: 0.1 },
+  plasma: { style: "sweep", freq: 2.8, pitch: 0.24, roll: 0.72 },
+  grav: { style: "push", freq: 2.1, pitch: 0.5, roll: 0.12 },
+  comet: { style: "push", freq: 2.7, pitch: 0.6, roll: 0.1 },
+  aurora: { style: "sweep", freq: 2.4, pitch: 0.2, roll: 0.66 },
+};
+
+export function toolMotion(id) {
+  return TOOL_MOTION[id] || TOOL_MOTION.broom;
+}
+
+export function sweepCycle(id, time, cleaning) {
+  const motion = toolMotion(id);
+  const freq = motion.freq * (cleaning ? 1 : 0.5);
+  return (time * freq) / Math.PI;
+}
+
 const MODEL_FILES = [
   "janitor",
   "tool_brush", "tool_broom", "tool_mop", "tool_vac", "tool_ind",
@@ -156,12 +182,16 @@ export async function createScene(canvas) {
 
   const loader = new GLTFLoader();
   const templates = {};
+  let faceLocal = new THREE.Vector3(0, 0.2, -1);
+  let skinIndex = -1;
   await Promise.all(MODEL_FILES.map(async (name) => {
     try {
       const gltf = await loader.loadAsync(`assets/models/${name}.glb`);
       const root = gltf.scene;
+      if (name === "janitor") skinIndex = materialSlot(root, "helmet", /skin/i);
       toLambert(root);
       if (!name.startsWith("tool_")) freezeHierarchy(root);
+      if (name === "janitor") faceLocal = measureFace(root, skinIndex);
       rememberRest(root);
       templates[name] = root;
     } catch (err) {
@@ -262,10 +292,13 @@ export async function createScene(canvas) {
 
   const player = new THREE.Group();
   const janitor = cloneModel("janitor");
+  // The visor sits on local -Z. A half turn makes that axis the way the body walks.
+  janitor.rotation.y = Math.PI;
   player.add(janitor);
   scene.add(player);
   const legL = findNamed(janitor, "leg_l");
   const legR = findNamed(janitor, "leg_r");
+  const armL = findNamed(janitor, "arm_l");
   const armR = findNamed(janitor, "arm_r");
   const socket = findNamed(janitor, "tool_socket") || armR || janitor;
   let toolMesh = null;
@@ -292,6 +325,9 @@ export async function createScene(canvas) {
   const depots = [];
   const bots = [];
   let dustStamp = "";
+  let camHold = null;
+  const _quat = new THREE.Quaternion();
+  const _v = new THREE.Vector3();
 
   function cloneModel(name) {
     const src = templates[name];
@@ -359,8 +395,7 @@ export async function createScene(canvas) {
     if (toolId === id && toolMesh) return;
     if (toolMesh) socket.remove(toolMesh);
     toolMesh = cloneModel("tool_" + id);
-    toolMesh.rotation.set(Math.PI / 2, 0.2, 0.35);
-    toolMesh.scale.setScalar(1.2);
+    seatTool(toolMesh, id);
     socket.add(toolMesh);
     toolId = id;
   }
@@ -416,11 +451,11 @@ export async function createScene(canvas) {
     const pos = state.pos;
     const frameBasis = Planet.basis(pos, state.heading || 0);
     placeUpright(player, pos, new THREE.Vector3(frameBasis.forward.x, frameBasis.forward.y, frameBasis.forward.z));
-    janitor.position.y = state.riding ? 0.62 : (frameMoving ? Math.abs(Math.sin(anim * 10)) * 0.06 : 0);
-    const step = frameMoving ? Math.sin(anim * (frameCleaning ? 12 : 8)) : Math.sin(anim * 2) * 0.12;
-    swing(legL, step * 0.65);
-    swing(legR, -step * 0.65);
-    swing(armR, frameCleaning ? Math.sin(anim * 16) * 0.75 : -step * 0.3);
+    janitor.position.y = state.riding ? 0.62 : (frameMoving ? Math.abs(Math.sin(anim * 10)) * 0.05 : 0);
+    const step = frameMoving ? Math.sin(anim * (frameCleaning ? 9 : 7)) : Math.sin(anim * 1.6) * 0.08;
+    swing(legL, step * 0.55);
+    swing(legR, -step * 0.55);
+    poseArms(anim, frameStats.tool.id, frameCleaning, frameMoving, reduceMotion);
     if (rideMesh) {
       const spin = anim * (frameMoving ? 9 : 1.5);
       rideMesh.traverse((obj) => {
@@ -462,7 +497,7 @@ export async function createScene(canvas) {
       const life = 1 - particle.age / particle.life;
       mesh.visible = life > 0;
       mesh.position.set(particle.x, particle.y, particle.z);
-      mesh.scale.setScalar(Math.max(0.15, life));
+      mesh.scale.setScalar(Math.max(0.12, (particle.size || 4) * 0.08) * Math.max(0.35, life));
     });
     for (let i = particles.length; i < puffs.length; i++) puffs[i].visible = false;
 
@@ -498,22 +533,49 @@ export async function createScene(canvas) {
       scene.fog.near = 2000;
       scene.fog.far = 2600;
     } else {
-      desired = focus.clone().addScaledVector(back, -6.2).addScaledVector(up, 3.1);
-      look = focus.clone().addScaledVector(back, 7.5).addScaledVector(up, 0.7);
+      desired = focus.clone().addScaledVector(back, -3.35).addScaledVector(up, 1.72);
+      look = focus.clone().addScaledVector(back, 4.2).addScaledVector(up, 0.72);
       scene.fog.near = 90;
       scene.fog.far = 340;
     }
     if (!reduceMotion && shake > 0 && !state.overview) {
       desired.x += Math.sin(anim * 40) * shake * 0.02;
     }
+    const dt = Math.max(0.001, Math.min(0.05, frame.dt || 1 / 60));
     const gap = camera.position.distanceTo(desired);
-    camera.position.lerp(desired, gap > 25 ? 1 : 0.22);
-    camera.up.set(state.overview ? 0 : up.x, state.overview ? 1 : up.y, state.overview ? 0 : up.z);
-    camera.lookAt(look);
+    const snap = gap > 50 || !camHold;
+    const follow = snap ? 1 : 1 - Math.exp(-5.2 * dt);
+    const roll = snap ? 1 : 1 - Math.exp(-3.6 * dt);
+    const desiredUp = state.overview ? new THREE.Vector3(0, 1, 0) : up;
+    if (!camHold) camHold = { pos: new THREE.Vector3(), look: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) };
+    camHold.pos.lerp(desired, follow);
+    camHold.look.lerp(look, follow);
+    camHold.up.lerp(desiredUp, roll).normalize();
+    camera.position.copy(camHold.pos);
+    camera.up.copy(camHold.up);
+    camera.lookAt(camHold.look);
     sun.position.copy(focus).add(new THREE.Vector3(8, 14, 6));
     sun.target.position.copy(focus);
     fill.position.copy(camera.position);
     renderer.render(scene, camera);
+  }
+
+  function faceDot(forward) {
+    const world = faceLocal.clone().applyQuaternion(janitor.getWorldQuaternion(_quat));
+    const radial = player.position.clone().normalize();
+    world.addScaledVector(radial, -world.dot(radial));
+    if (world.lengthSq() < 1e-8) return 0;
+    return world.normalize().dot(_v.copy(forward).normalize());
+  }
+
+  function poseArms(time, toolId, cleaning, moving, reduceMotion) {
+    const motion = toolMotion(toolId);
+    const amp = reduceMotion ? 0.15 : cleaning ? 1 : moving ? 0.42 : 0.16;
+    const freq = motion.freq * (cleaning ? 1 : 0.45);
+    const wave = Math.sin(time * freq);
+    const base = 0.7;
+    poseArm(armR, base + wave * motion.pitch * amp, 0, wave * motion.roll * amp);
+    poseArm(armL, 0.18 + wave * motion.pitch * amp * 0.4, 0, -wave * motion.roll * amp * 0.32);
   }
 
   resize();
@@ -522,6 +584,7 @@ export async function createScene(canvas) {
     render,
     modelsLoaded: true,
     planetRadius: Planet.RADIUS,
+    faceDot,
   };
 }
 
@@ -529,6 +592,76 @@ function swing(part, amount) {
   if (!part || !part.userData.rest) return;
   part.quaternion.copy(part.userData.rest);
   part.rotateX(amount);
+}
+
+function poseArm(part, pitch, yaw, roll) {
+  if (!part || !part.userData.rest) return;
+  part.quaternion.copy(part.userData.rest);
+  part.rotateZ(roll);
+  part.rotateX(pitch);
+  part.rotateY(yaw);
+}
+
+function materialSlot(root, meshName, pattern) {
+  const mesh = findNamed(root, meshName);
+  if (!mesh || !mesh.isMesh) return -1;
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  return mats.findIndex((m) => pattern.test(m.name || ""));
+}
+
+function groupCentroid(mesh, slot) {
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const index = geo.getIndex();
+  const groups = geo.groups && geo.groups.length
+    ? geo.groups
+    : [{ start: 0, count: index ? index.count : pos.count, materialIndex: 0 }];
+  const acc = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  let n = 0;
+  mesh.updateWorldMatrix(true, false);
+  for (const g of groups) {
+    if (slot >= 0 && g.materialIndex !== slot) continue;
+    for (let i = g.start; i < g.start + g.count; i++) {
+      const vi = index ? index.getX(i) : i;
+      v.fromBufferAttribute(pos, vi).applyMatrix4(mesh.matrixWorld);
+      acc.add(v);
+      n += 1;
+    }
+  }
+  return n ? acc.multiplyScalar(1 / n) : new THREE.Vector3();
+}
+
+function measureFace(root, slot) {
+  const helmet = findNamed(root, "helmet");
+  const body = findNamed(root, "body");
+  if (!helmet || !body || !helmet.isMesh || !body.isMesh) return new THREE.Vector3(0, 0.2, -1);
+  return groupCentroid(helmet, slot).sub(groupCentroid(body, -1));
+}
+
+const HELD = {
+  brush: [-Math.PI / 2, 0.15, 0.35],
+  vac: [-0.55, 0.25, 0],
+  ind: [-0.5, 0.2, 0],
+  cyclone: [-0.7, 0.1, 0],
+  grav: [-0.9, 0, 0],
+  comet: [-0.45, 0.15, 0],
+};
+
+function seatTool(mesh, id) {
+  const rot = HELD[id];
+  mesh.position.set(0, 0, 0);
+  mesh.rotation.set(0, 0, 0);
+  mesh.scale.setScalar(id === "brush" ? 1.75 : rot ? 1.15 : 1.45);
+  if (rot) mesh.rotation.set(rot[0], rot[1], rot[2]);
+  mesh.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(mesh);
+  const grip = rot
+    ? box.getCenter(new THREE.Vector3())
+    : new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y - 0.05, (box.min.z + box.max.z) / 2);
+  mesh.position.sub(grip);
+  mesh.position.z -= 0.2;
+  mesh.position.y -= rot ? 0.04 : 0.02;
 }
 
 function textSprite(text, color) {
