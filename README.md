@@ -1,8 +1,22 @@
 # Лунные дворники
 
-Однопользовательская игра про посёлок **«Тихая осыпь»**: мети лунную пыль, носи её в рюкзаке к зелёному приёмнику и запускай рейс за кредиты. Инструменты, техника и роботы открываются по очереди, участки становятся пыльнее и дороже, а **новая смена** оставляет нашивки и начинает двор сначала.
+Однопользовательская 3D-игра про посёлок **«Тихая осыпь»**: мети лунную пыль, носи её в рюкзаке к зелёному приёмнику и запускай рейс за кредиты. Инструменты, техника и роботы открываются по очереди, участки становятся пыльнее и дороже, а **новая смена** оставляет нашивки и начинает двор сначала.
 
-This is a static browser game. No build step and no external CDNs.
+The scene is Three.js, vendored in `vendor/three/` (no CDN, no build step). Models are glTF files in `assets/models/`. Dust is a tile mask on the ground and clears under the tool. The camera follows in a low third-person view. Pixel ratio is capped at 1.5 and there is one shadow map, so a mid-range phone can run it.
+
+Sources and licenses: [assets/CREDITS.md](assets/CREDITS.md).
+
+## Rebuild the models
+
+Blender 4 headless:
+
+```bash
+blender --background --python blender/build_models.py
+blender --background --python blender/import_cc0.py
+blender --background --python blender/render_models.py
+```
+
+`build_models.py` makes the cleaning tools, the rocket, the drone, the flag and the cactus. `import_cc0.py` recolors Kenney Space Kit models (CC0) and adds axle wheels plus the janitor's tool socket. It looks for the pack in `third_party/kenney-space-kit/Models/GLTF format/`. `render_models.py` writes two angles of every `.blend` into `/tmp/lunar-renders/`.
 
 ## Play locally
 

@@ -1,3 +1,5 @@
+import { createScene } from "./scene3d.js";
+
 (() => {
   "use strict";
 
@@ -66,7 +68,6 @@
 
   const $ = (id) => document.getElementById(id);
   const canvas = $("view");
-  const ctx = canvas.getContext("2d");
   const stage = $("stage");
   const moneyEl = $("money");
   const mulEl = $("mul");
@@ -97,19 +98,7 @@
   const modalBody = $("modal-body");
   const modalActions = $("modal-actions");
 
-  if (!ctx) throw new Error("canvas");
-
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
-    const radius = Math.min(typeof r === "number" ? r : 0, Math.abs(w) / 2, Math.abs(h) / 2);
-    this.moveTo(x + radius, y);
-    this.arcTo(x + w, y, x + w, y + h, radius);
-    this.arcTo(x + w, y + h, x, y + h, radius);
-    this.arcTo(x, y + h, x, y, radius);
-    this.arcTo(x, y, x + w, y, radius);
-    this.closePath();
-  };
-}
+  let sceneApi = null;
 
   const view = { w: 800, h: 600, dpr: 1, scale: 1 };
   const cam = { x: 120, y: SH / 2 };
@@ -1711,548 +1700,28 @@ function finishBuy() {
 
   function resize() {
     const rect = stage.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
     view.w = Math.max(2, rect.width);
     view.h = Math.max(2, rect.height);
-    view.dpr = dpr;
-    canvas.width = Math.floor(view.w * dpr);
-    canvas.height = Math.floor(view.h * dpr);
-  }
-
-  function worldToScreen(x, y) {
-    return {
-      x: (x - cam.x) * view.scale + view.w / 2,
-      y: (y - cam.y) * view.scale + view.h / 2,
-    };
-  }
-
-function drawDustTiles(index, originX, originY) {
-  const sector = state.sectors[index];
-  const dust = sector.dust;
-  const biome = biomeOf(index);
-  const season = Math.floor(index / BIOMES.length);
-  const dim = 0.9 ** Math.min(season, 6);
-  const tw = TILE * view.scale;
-  const gap = Math.max(1.25, tw * 0.14);
-  const size = tw - gap * 2;
-  if (size <= 0.5) return;
-  const radius = Math.min(7, size * 0.38);
-  const pulse = 0.55 + 0.45 * Math.sin(anim * 5);
-  ctx.save();
-  for (let i = 0; i < dust.length; i++) {
-    const amount = dust[i];
-    if (amount < 1.2) continue;
-    const t = Math.max(0, Math.min(1, amount / 80));
-    const col = i % COLS;
-    const row = (i / COLS) | 0;
-    const spark = amount > 8 && sparkleMul(index, i) > 1;
-    ctx.globalAlpha = spark ? 0.55 + pulse * 0.4 : 0.28 + t * 0.67;
-    ctx.fillStyle = spark
-      ? "#ffe56a"
-      : `rgb(${(biome.dust[0] * dim) | 0},${(biome.dust[1] * dim) | 0},${(biome.dust[2] * dim) | 0})`;
-    roundRect(originX + col * tw + gap, originY + row * tw + gap, size, size, radius);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-  }
-
-  function label(text, x, y) {
-    ctx.font = "700 13px Segoe UI, Liberation Sans, Noto Sans, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-    const w = ctx.measureText(text).width;
-    ctx.fillStyle = "rgba(255, 250, 243, 0.94)";
-    roundRect(x - w / 2 - 8, y - 14, w + 16, 20, 8);
-    ctx.fill();
-    ctx.strokeStyle = "#24183a";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = "#24183a";
-    ctx.fillText(text, x, y);
-  }
-
-  function drawDecor(index, x, y, w, h) {
-    const biome = biomeOf(index);
-    const scale = view.scale;
-    ctx.save();
-    for (let k = 0; k < 28; k++) {
-      const px = x + hash2(index + 3, k) * w;
-      const py = y + hash2(k + 9, index) * h;
-      ctx.fillStyle = "rgba(255,255,255,0.22)";
-      ctx.beginPath();
-      ctx.arc(px, py, (1.5 + hash2(k, index + 2) * 3) * scale, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = "rgba(255,255,255,0.28)";
-    ctx.fillRect(x, y + h / 2 - 20 * scale, w, 40 * scale);
-    if (biome.decor === "airlock") {
-      ctx.strokeStyle = "#ff7a59";
-      ctx.lineWidth = 6 * scale;
-      ctx.beginPath();
-      ctx.arc(x + w * 0.5, y + h * 0.22, 48 * scale, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#8ee7ff";
-      ctx.beginPath();
-      ctx.arc(x + w * 0.5, y + h * 0.22, 18 * scale, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (biome.decor === "cactus") {
-      ctx.fillStyle = "#3aaa5a";
-      for (let k = 0; k < 5; k++) {
-        const px = x + (0.18 + hash2(index, k) * 0.64) * w;
-        const py = y + (0.18 + hash2(k, index + 4) * 0.64) * h;
-        if (Math.abs(py - (y + h / 2)) < 30 * scale) continue;
-        ctx.fillRect(px, py, 10 * scale, 28 * scale);
-        ctx.fillRect(px - 10 * scale, py + 8 * scale, 12 * scale, 6 * scale);
-      }
-    } else if (biome.decor === "dish") {
-      for (let k = 0; k < 4; k++) {
-        const px = x + (0.2 + k * 0.18) * w;
-        const py = y + (0.25 + (k % 2) * 0.45) * h;
-        ctx.strokeStyle = "#4c7cff";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(px, py - 26 * scale);
-        ctx.stroke();
-        ctx.fillStyle = "#fffaf3";
-        ctx.beginPath();
-        ctx.ellipse(px, py - 30 * scale, 16 * scale, 8 * scale, -0.4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-    } else if (biome.decor === "domes") {
-      const colors = ["#ff8fab", "#8ee7ff", "#ffd23f", "#c9b6ff"];
-      for (let k = 0; k < 4; k++) {
-        const px = x + (0.18 + k * 0.2) * w;
-        const py = y + h * (k % 2 ? 0.28 : 0.72);
-        ctx.fillStyle = colors[k];
-        ctx.beginPath();
-        ctx.arc(px, py, 22 * scale, Math.PI, 0);
-        ctx.fill();
-        ctx.strokeStyle = "#24183a";
-        ctx.stroke();
-      }
-    } else if (biome.decor === "quarry") {
-      ctx.strokeStyle = "rgba(120,70,40,0.45)";
-      ctx.lineWidth = 3;
-      for (let k = 1; k <= 3; k++) {
-        ctx.beginPath();
-        ctx.ellipse(x + w * 0.45, y + h * 0.3, 30 * k * scale, 16 * k * scale, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    } else if (biome.decor === "flags") {
-      for (let k = 0; k < 5; k++) {
-        const px = x + (0.15 + k * 0.16) * w;
-        const py = y + h * (0.22 + (k % 2) * 0.5);
-        const wave = Math.sin(anim * 3 + k) * 4;
-        ctx.strokeStyle = "#1aa58f";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(px, py - 28 * scale);
-        ctx.stroke();
-        ctx.fillStyle = k % 2 ? "#ffc857" : "#fffaf3";
-        ctx.beginPath();
-        ctx.moveTo(px, py - 28 * scale);
-        ctx.lineTo(px + (18 + wave) * scale, py - 22 * scale);
-        ctx.lineTo(px, py - 16 * scale);
-        ctx.fill();
-      }
-    } else if (biome.decor === "crater") {
-      ctx.strokeStyle = "#e2a122";
-      ctx.lineWidth = 10 * scale;
-      ctx.beginPath();
-      ctx.arc(x + w * 0.55, y + h * 0.32, 50 * scale, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 4 * scale;
-      ctx.beginPath();
-      ctx.arc(x + w * 0.55, y + h * 0.32, 28 * scale, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (biome.decor === "ink") {
-      ctx.fillStyle = "rgba(70, 60, 140, 0.35)";
-      for (let k = 0; k < 4; k++) {
-        ctx.beginPath();
-        ctx.ellipse(
-          x + hash2(index, k) * w,
-          y + hash2(k, index + 5) * h,
-          30 * scale,
-          16 * scale,
-          0, 0, Math.PI * 2,
-        );
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-
-  function drawSlab(index, preview) {
-    const o = sectorOrigin(index);
-    const p = worldToScreen(o.x, o.y);
-    const w = SW * view.scale;
-    const h = SH * view.scale;
-    const biome = biomeOf(index);
-    ctx.fillStyle = "rgba(92, 58, 48, 0.95)";
-    roundRect(p.x, p.y + Math.max(6, 8 * view.scale), w, h, 26);
-    ctx.fill();
-
-    ctx.save();
-    roundRect(p.x, p.y, w, h, 24);
-    ctx.clip();
-    const g = ctx.createLinearGradient(p.x, p.y, p.x, p.y + h);
-    g.addColorStop(0, biome.ground[0]);
-    g.addColorStop(1, biome.ground[1]);
-    ctx.fillStyle = g;
-    ctx.fillRect(p.x, p.y, w, h);
-    drawDecor(index, p.x, p.y, w, h);
-    if (!preview) {
-      drawDustTiles(index, p.x, p.y);
-    } else {
-      ctx.fillStyle = "rgba(36, 24, 58, 0.48)";
-      ctx.fillRect(p.x, p.y, w, h);
-    }
-    ctx.restore();
-
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(36, 24, 58, 0.45)";
-    roundRect(p.x, p.y, w, h, 24);
-    ctx.stroke();
-
-    if (!preview) {
-      const sector = state.sectors[index];
-      const origin = sectorOrigin(index);
-      for (const b of sector.boulders) {
-        const bp = worldToScreen(origin.x + b.x, origin.y + b.y);
-        const r = b.r * view.scale;
-        ctx.fillStyle = "#9a8792";
-        ctx.beginPath();
-        ctx.arc(bp.x, bp.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.4)";
-        ctx.beginPath();
-        ctx.arc(bp.x - r * 0.28, bp.y - r * 0.3, r * 0.32, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#24183a";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(bp.x, bp.y, r, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      if (index === 0) {
-        const mark = worldToScreen(o.x + SW / 2, o.y + 36);
-        label("Тихая осыпь", mark.x, mark.y);
-      }
-    } else {
-      const mark = worldToScreen(o.x + SW / 2, o.y + SH / 2);
-      label(sectorTitle(index), mark.x, mark.y - 16);
-      label("откроется на 80%", mark.x, mark.y + 14);
-    }
-  }
-
-  function drawBridges() {
-    const last = state.sectors.length;
-    for (let i = 0; i < last; i++) {
-      const open = i + 1 < state.sectors.length;
-      const o = sectorOrigin(i);
-      const a = worldToScreen(o.x + SW, SH / 2 - 32);
-      const b = worldToScreen(o.x + SW + GAP, SH / 2 + 32);
-      const planks = open ? 6 : 3;
-      const span = b.x - a.x;
-      for (let p = 0; p < planks; p++) {
-        const px = a.x + ((p + 0.35) * span) / planks;
-        ctx.fillStyle = open ? (p % 2 ? "#efe0cb" : "#d7c0a4") : "#6d6484";
-        ctx.fillRect(px, a.y, Math.max(8, span / planks - 6), b.y - a.y);
-        ctx.strokeStyle = "#24183a";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px, a.y, Math.max(8, span / planks - 6), b.y - a.y);
-      }
-    }
-  }
-
-  function drawDepots() {
-    for (const d of allDepots()) {
-      const p = worldToScreen(d.x, d.y);
-      const rad = 40 * view.scale;
-      ctx.fillStyle = "rgba(20, 184, 137, 0.9)";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#fffaf3";
-      ctx.stroke();
-      const fill = 1 - Math.exp(-state.hopper.mass / 3500);
-      ctx.fillStyle = "#fffaf3";
-      roundRect(p.x - 11, p.y - 8 - fill * 8, 22, 20, 4);
-      ctx.fill();
-      ctx.strokeStyle = "#24183a";
-      ctx.stroke();
-      ctx.fillStyle = "#ff6b6b";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 26);
-      ctx.lineTo(p.x + 8, p.y - 12);
-      ctx.lineTo(p.x - 8, p.y - 12);
-      ctx.fill();
-      label(d.home ? "Главный приёмник" : "Приёмник", p.x, p.y - rad - 8);
-    }
-  }
-
-  function drawRobot(r) {
-    const p = worldToScreen(r.x, r.y);
-    const def = robotDef(r.type);
-    const bob = Math.sin(anim * 6 + r.x * 0.01) * 2;
-    ctx.fillStyle = "rgba(20, 10, 40, 0.28)";
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y + 12, r.type === "caravan" ? 16 : 9, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = def.color;
-    ctx.beginPath();
-    if (r.type === "caravan") ctx.ellipse(p.x, p.y + bob, 16, 9, 0, 0, Math.PI * 2);
-    else ctx.arc(p.x, p.y + bob, 8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#24183a";
-    ctx.stroke();
-    ctx.fillStyle = "#24183a";
-    ctx.beginPath();
-    ctx.arc(p.x + 3, p.y + bob - 1, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-    if (r.type === "drone") {
-      ctx.strokeStyle = "#24183a";
-      ctx.beginPath();
-      ctx.moveTo(p.x - 10, p.y + bob - 10);
-      ctx.lineTo(p.x + 10, p.y + bob - 10);
-      ctx.stroke();
-    }
-  }
-
-  function drawPlayer() {
-    const p = worldToScreen(state.px, state.py);
-    const bob = Math.sin(anim * (frameMoving ? 12 : 2)) * (frameMoving ? 2.2 : 0.4);
-    const x = p.x;
-    const y = p.y + bob;
-    ctx.fillStyle = "rgba(20, 10, 40, 0.28)";
-    ctx.beginPath();
-    ctx.ellipse(x, p.y + 16, 16, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (state.riding) {
-      const v = vehicleById(state.riding);
-      ctx.fillStyle = v ? v.color : "#ffd23f";
-      ctx.beginPath();
-      ctx.ellipse(x, y + 12, state.riding === "blin" ? 28 : 20, 11, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#24183a";
-      ctx.stroke();
-    }
-    ctx.fillStyle = "#ffd23f";
-    ctx.beginPath();
-    ctx.arc(x, y, 20, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#24183a";
-    ctx.stroke();
-    ctx.fillStyle = "#ff6b6b";
-    roundRect(x - 11, y + 7, 22, 6, 3);
-    ctx.fill();
-    ctx.fillStyle = "#8ee7ff";
-    ctx.beginPath();
-    ctx.ellipse(x + frameFacing * 4, y - 1, 9, 6.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#24183a";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    const swing = Math.sin(anim * (frameCleaning ? 18 : 3)) * (frameCleaning ? 0.7 : 0.25);
-    ctx.save();
-    ctx.translate(x, y + 2);
-    ctx.scale(frameFacing, 1);
-    ctx.rotate(swing);
-    ctx.lineCap = "round";
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#24183a";
-    const id = frameStats.tool.id;
-    if (id === "brush") {
-      ctx.beginPath();
-      ctx.moveTo(12, -2);
-      ctx.lineTo(28, 14);
-      ctx.stroke();
-      ctx.fillStyle = "#7ad7ff";
-      ctx.strokeStyle = "#24183a";
-      roundRect(24, 10, 10, 8, 2);
-      ctx.fill();
-      ctx.stroke();
-    } else if (id === "broom" || id === "turbo") {
-      ctx.beginPath();
-      ctx.moveTo(8, -2);
-      ctx.lineTo(16, 14);
-      ctx.stroke();
-      ctx.strokeStyle = "#c47a3a";
-      for (let i = -2; i <= 2; i++) {
-        ctx.beginPath();
-        ctx.moveTo(16, 14);
-        ctx.lineTo(22 + i * 2, 24);
-        ctx.stroke();
-      }
-    } else if (id === "mop" || id === "plasma") {
-      ctx.beginPath();
-      ctx.moveTo(10, -4);
-      ctx.lineTo(10, 14);
-      ctx.stroke();
-      ctx.fillStyle = id === "plasma" ? "#d7b4ff" : "#8ee7ff";
-      ctx.fillRect(0, 12, 20, 7);
-      ctx.strokeRect(0, 12, 20, 7);
-    } else {
-      ctx.fillStyle = id === "ind" ? "#ff7a59" : "#4c7cff";
-      roundRect(4, -8, 16, 14, 4);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(18, 0);
-      ctx.quadraticCurveTo(30, 8, 24, 18);
-      ctx.stroke();
-    }
-    if (state.tool >= 8) {
-      ctx.strokeStyle = "rgba(255, 214, 90, 0.9)";
-      ctx.beginPath();
-      ctx.arc(18, 8, 10, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, frameStats.radius * view.scale, 0, Math.PI * 2);
-    ctx.strokeStyle = frameCleaning ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.2)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    if (frameCleaning) {
-      const grd = ctx.createRadialGradient(p.x, p.y, 4, p.x, p.y, frameStats.radius * view.scale);
-      grd.addColorStop(0, "rgba(255,255,255,0.28)");
-      grd.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = grd;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, frameStats.radius * view.scale, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawArrow() {
-    const frac = capacity() > 0 ? state.backpack.mass / capacity() : 0;
-    if (frac < 0.5) return;
-    const d = nearestDepot(state.px, state.py);
-    if (d.dist < 90) return;
-    const ang = Math.atan2(d.depot.y - state.py, d.depot.x - state.px);
-    const p = worldToScreen(state.px, state.py);
-    const ax = p.x + Math.cos(ang) * 78;
-    const ay = p.y + Math.sin(ang) * 78;
-    ctx.save();
-    ctx.translate(ax, ay);
-    ctx.rotate(ang);
-    ctx.fillStyle = "#14b889";
-    ctx.strokeStyle = "#24183a";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(12, 0);
-    ctx.lineTo(-8, 7);
-    ctx.lineTo(-8, -7);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    if (sceneApi) sceneApi.resize();
   }
 
   function render() {
-    view.scale = view.h / VIEW_H;
-    const sx = reduceMotion ? 0 : Math.sin(anim * 40) * shake;
-    const sy = reduceMotion ? 0 : Math.cos(anim * 37) * shake * 0.6;
-    ctx.setTransform(view.dpr, 0, 0, view.dpr, sx * view.dpr, sy * view.dpr);
-    ctx.clearRect(-20, -20, view.w + 40, view.h + 40);
-    const sky = ctx.createLinearGradient(0, 0, 0, view.h);
-    sky.addColorStop(0, "#2a2160");
-    sky.addColorStop(1, "#120e28");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, view.w, view.h);
-    const neb = ctx.createRadialGradient(view.w * 0.15, view.h * 0.2, 10, view.w * 0.2, view.h * 0.2, view.w * 0.7);
-    neb.addColorStop(0, "rgba(140, 170, 255, 0.22)");
-    neb.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = neb;
-    ctx.fillRect(0, 0, view.w, view.h);
-
-    ctx.fillStyle = "#fffaf3";
-    for (let i = 0; i < 70; i++) {
-      const sx0 = ((hash2(i, 1) * 4000 - cam.x * 0.15) % view.w + view.w) % view.w;
-      const sy0 = ((hash2(i, 2) * 2400 - cam.y * 0.12) % view.h + view.h) % view.h;
-      const tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(anim * 2 + i));
-      ctx.globalAlpha = tw;
-      ctx.fillRect(sx0, sy0, hash2(i, 4) > 0.85 ? 2.4 : 1.4, hash2(i, 4) > 0.85 ? 2.4 : 1.4);
-    }
-    ctx.globalAlpha = 1;
-
-    const margin = 80;
-    for (let i = 0; i < state.sectors.length; i++) {
-      const p = worldToScreen(sectorOrigin(i).x, 0);
-      if (p.x > view.w + margin || p.x + SW * view.scale < -margin) continue;
-      drawSlab(i, false);
-    }
-    const preview = state.sectors.length;
-    const pp = worldToScreen(sectorOrigin(preview).x, 0);
-    if (pp.x < view.w + margin && pp.x + SW * view.scale > -margin) drawSlab(preview, true);
-
-    drawBridges();
-    drawDepots();
-
-    for (const s of sweeps) {
-      const p = worldToScreen(s.x, s.y);
-      const t = s.age / s.life;
-      ctx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.8})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, s.r * view.scale * (0.75 + t * 0.35), s.a, s.a + 1.5);
-      ctx.stroke();
-    }
-
-    for (const r of robots) {
-      const p = worldToScreen(r.x, r.y);
-      if (p.x < -40 || p.y < -40 || p.x > view.w + 40 || p.y > view.h + 40) continue;
-      drawRobot(r);
-    }
-
-    for (const particle of particles) {
-      const p = worldToScreen(particle.x, particle.y);
-      const t = 1 - particle.age / particle.life;
-      ctx.globalAlpha = Math.max(0, t);
-      ctx.fillStyle = particle.color;
-      ctx.fillRect(p.x, p.y, particle.size, particle.size);
-    }
-    ctx.globalAlpha = 1;
-
-    drawPlayer();
-
-    for (const rocket of rockets) {
-      const p = worldToScreen(rocket.x, rocket.y - rocket.age * 220);
-      ctx.fillStyle = "#fffaf3";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - 16);
-      ctx.lineTo(p.x + 7, p.y + 8);
-      ctx.lineTo(p.x - 7, p.y + 8);
-      ctx.fill();
-      ctx.fillStyle = "#ffc857";
-      ctx.fillRect(p.x - 3, p.y + 8, 6, 8 + rocket.age * 10);
-    }
-
-    drawArrow();
-
-    for (const f of floaters) {
-      const p = worldToScreen(f.x, f.y);
-      ctx.globalAlpha = Math.max(0, 1 - f.age / f.life);
-      ctx.font = "800 16px Segoe UI, Liberation Sans, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = f.color;
-      ctx.fillText(f.text, p.x, p.y);
-    }
-    ctx.globalAlpha = 1;
+    if (!sceneApi || !state) return;
+    sceneApi.render({
+      state,
+      cfg: { biomeOf, sectorOrigin, STRIDE, allDepots },
+      robots,
+      particles,
+      floaters,
+      rockets,
+      anim,
+      shake,
+      frameStats,
+      frameMoving,
+      frameFacing,
+      frameCleaning,
+      reduceMotion,
+    });
   }
 
   function findDust() {
@@ -2406,18 +1875,20 @@ function drawDustTiles(index, originX, originY) {
     addEventListener("beforeunload", () => save());
   }
 
-  function boot() {
+  async function boot() {
     bind();
-    resize();
     const report = load();
     frameStats = combatStats();
     updateUI();
+    sceneApi = await createScene(canvas);
+    resize();
     if (report && report.corrupt) toast("Сохранение повреждено — начали заново");
     else if (report && report.storage === false) toast("Память браузера недоступна, игра только на этот раз");
     else if (report && report.earned > 0.5) showOffline(report);
 
     window.__LUNAR = {
       ready: true,
+      modelsLoaded: true,
       format: formatNumber,
       tick(dt) { update(dt); },
       teleport(x, y) {
@@ -2460,5 +1931,7 @@ function drawDustTiles(index, originX, originY) {
     setInterval(() => { if (!paused) save(); }, 5000);
   }
 
-  boot();
+  boot().catch((err) => {
+    console.error(err);
+  });
 })();

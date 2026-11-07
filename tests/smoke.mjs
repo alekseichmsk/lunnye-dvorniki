@@ -13,6 +13,7 @@ const types = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".glb": "model/gltf-binary",
 };
 
 function fail(message) {
@@ -123,6 +124,10 @@ async function main() {
     "--no-default-browser-check",
     "--disable-background-networking",
     "--mute-audio",
+    "--enable-webgl",
+    "--ignore-gpu-blocklist",
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${profile}`,
     "about:blank",
@@ -194,6 +199,8 @@ async function main() {
 
     await waitReady();
     const title = await ev("document.title");
+    const models = await ev("window.__LUNAR.modelsLoaded === true");
+    assert(models, "3D models did not load");
     assert(title === "Лунные дворники", "title " + title);
     const heading = await ev("document.querySelector('h1').textContent");
     assert(heading.includes("Лунные дворники"), "heading");
