@@ -1271,7 +1271,7 @@ function finishBuy() {
     state.dust.stamp = 1;
     loadRobots(data.robots);
     const sp = spawnPoint();
-    const loaded = data.pos && Number.isFinite(data.pos.x) ? Planet.surface(data.pos) : sp;
+    const loaded = data.pos && Number.isFinite(data.pos.x) ? Planet.meshSurface(data.pos) : sp;
     state.pos = { x: loaded.x, y: loaded.y, z: loaded.z };
     state.heading = num(data.heading, 0.6, -Math.PI * 4, Math.PI * 4);
     const cam = data.camera || {};
@@ -2062,7 +2062,7 @@ function finishBuy() {
       format: formatNumber,
       tick(dt) { update(dt); },
       teleport(x, y, z) {
-        const spot = Planet.surface({ x, y, z: z || 0 });
+        const spot = Planet.meshSurface({ x, y, z: z || 0 });
         state.pos = { x: spot.x, y: spot.y, z: spot.z };
       },
       setMove(x, y) { stick.manual = { x, y }; },
@@ -2111,6 +2111,63 @@ function finishBuy() {
         },
         toolId() { return TOOLS[state.tool].id; },
         flowerCount() { return sceneApi ? sceneApi.flowerCount() : 0; },
+        pose(mode) {
+          frameMoving = mode === "walk" || mode === "sweep";
+          frameCleaning = mode === "sweep";
+          state.glide = mode === "idle" ? 0 : 1.4;
+          anim += 0.41;
+          render();
+          return mode;
+        },
+        gripGap() {
+          render();
+          return sceneApi ? sceneApi.gripGap() : 1;
+        },
+        upAlign() {
+          render();
+          return sceneApi ? sceneApi.upAlign() : 0;
+        },
+        focusHand(side) {
+          if (sceneApi) sceneApi.focusHand(side);
+          render();
+        },
+        fillHopper() {
+          state.hopper.mass = 8;
+          state.hopper.worth = 12;
+          state.backpack.mass = 4;
+        },
+        standOnSlope() {
+          let best = null;
+          let bestDot = 1;
+          for (let k = 0; k < 480; k++) {
+            const dir = Planet.norm({
+              x: Math.sin(k * 2.399),
+              y: Math.cos(k * 1.713),
+              z: Math.sin(k * 3.071),
+            });
+            const spot = Planet.meshSurface(dir);
+            const slope = Math.abs(Planet.dot(Planet.surfaceNormal(spot), Planet.up(spot)));
+            if (slope < bestDot) {
+              bestDot = slope;
+              best = spot;
+            }
+          }
+          state.pos = { x: best.x, y: best.y, z: best.z };
+          const radial = Planet.up(best);
+          const ground = Planet.surfaceNormal(best);
+          const fall = Planet.norm(Planet.sub(ground, Planet.scale(radial, Planet.dot(ground, radial))));
+          const across = Planet.norm(Planet.cross(radial, fall));
+          const yaw = Planet.headingFromWish(best, across, 0);
+          state.heading = yaw;
+          state.camYawTo = yaw;
+          state.camYaw = yaw;
+          state.camPitchTo = 0.48;
+          state.camPitch = 0.48;
+          state.camDistTo = 6.2;
+          state.camDist = 6.2;
+          render();
+          return bestDot;
+        },
         sow(radius) {
           const reach = radius || 16;
           for (let n = 0; n < 6; n++) Planet.cleanAround(state.dust, state.pos, reach, 20000);

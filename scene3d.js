@@ -29,87 +29,12 @@ export function sweepCycle(id, time, cleaning) {
 }
 
 const FLOWER_MAX = 480;
-const ROSE_CREAM = new THREE.Color("#f6ebe3");
-const ROSE_BLUSH = new THREE.Color("#f3c9d0");
-const ROSE_PINK = new THREE.Color("#d45384");
-const ROSE_STEM = new THREE.Color("#3c6844");
-const ROSE_LEAF = new THREE.Color("#4d7c50");
-const ROSE_LEAF_DARK = new THREE.Color("#2c5538");
 
 function flowerHash(i) {
   let n = (i + 1) >>> 0;
   n = Math.imul(n ^ (n >>> 16), 0x7feb352d);
   n = Math.imul(n ^ (n >>> 15), 0x846ca68b);
   return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
-}
-
-function buildRoseGeometry() {
-  const pos = [];
-  const col = [];
-  function tri(a, b, c, ca, cb, cc) {
-    pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-    col.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b, cc.r, cc.g, cc.b);
-  }
-  function ring(y0, y1, r0, r1, sides, c0, c1) {
-    for (let i = 0; i < sides; i++) {
-      const a0 = (i / sides) * Math.PI * 2;
-      const a1 = ((i + 1) / sides) * Math.PI * 2;
-      const p00 = [Math.cos(a0) * r0, y0, Math.sin(a0) * r0];
-      const p10 = [Math.cos(a1) * r0, y0, Math.sin(a1) * r0];
-      const p01 = [Math.cos(a0) * r1, y1, Math.sin(a0) * r1];
-      const p11 = [Math.cos(a1) * r1, y1, Math.sin(a1) * r1];
-      tri(p00, p10, p11, c0, c0, c1);
-      tri(p00, p11, p01, c0, c1, c1);
-    }
-  }
-  ring(0, 0.26, 0.022, 0.016, 5, ROSE_STEM, ROSE_STEM);
-  ring(0.2, 0.32, 0.055, 0.028, 5, ROSE_LEAF_DARK, ROSE_LEAF_DARK);
-  function petal(yaw, lift, len, width, curl) {
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
-    const baseY = 0.31 + lift;
-    const b1 = [c * 0.02 - s * width * 0.45, baseY, s * 0.02 + c * width * 0.45];
-    const b2 = [c * 0.02 + s * width * 0.45, baseY, s * 0.02 - c * width * 0.45];
-    const m1 = [c * len * 0.62 - s * width, baseY + curl * 0.25, s * len * 0.62 + c * width];
-    const m2 = [c * len * 0.62 + s * width, baseY + curl * 0.25, s * len * 0.62 - c * width];
-    const tip = [c * len * 0.9, baseY + curl, s * len * 0.9];
-    tri(b1, b2, m2, ROSE_CREAM, ROSE_CREAM, ROSE_BLUSH);
-    tri(b1, m2, m1, ROSE_CREAM, ROSE_BLUSH, ROSE_BLUSH);
-    tri(m1, m2, tip, ROSE_BLUSH, ROSE_BLUSH, ROSE_PINK);
-  }
-  for (let i = 0; i < 6; i++) petal((i / 6) * Math.PI * 2 + 0.2, 0, 0.16, 0.1, 0.035);
-  for (let i = 0; i < 5; i++) petal((i / 5) * Math.PI * 2 + 0.35, 0.045, 0.12, 0.075, 0.07);
-  for (let i = 0; i < 4; i++) petal((i / 4) * Math.PI * 2, 0.09, 0.075, 0.05, 0.1);
-  ring(0.4, 0.46, 0.03, 0.012, 5, ROSE_BLUSH, ROSE_PINK);
-  function leaf(yaw, len) {
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
-    const tip = [c * len, 0.05, s * len];
-    const w = len * 0.36;
-    const left = [-s * w, 0.1, c * w];
-    const right = [s * w, 0.1, -c * w];
-    const root = [c * 0.02, 0.12, s * 0.02];
-    tri(root, tip, left, ROSE_LEAF, ROSE_LEAF_DARK, ROSE_LEAF);
-    tri(root, right, tip, ROSE_LEAF, ROSE_LEAF, ROSE_LEAF_DARK);
-  }
-  leaf(0.5, 0.18);
-  leaf(2.5, 0.16);
-  leaf(4.3, 0.15);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function slopeFrame(normal, yaw) {
-  let east = Planet.cross({ x: 0, y: 1, z: 0 }, normal);
-  if (Planet.dot(east, east) < 1e-8) east = Planet.cross({ x: 1, y: 0, z: 0 }, normal);
-  east = Planet.norm(east);
-  const north = Planet.norm(Planet.cross(normal, east));
-  const forward = Planet.norm(Planet.add(Planet.scale(north, Math.cos(yaw)), Planet.scale(east, Math.sin(yaw))));
-  const right = Planet.norm(Planet.cross(forward, normal));
-  return { forward, right, up: normal };
 }
 
 const MODEL_FILES = [
@@ -289,9 +214,21 @@ export async function createScene(canvas) {
   const fill = new THREE.DirectionalLight(0xf6e6cf, 0.35);
   scene.add(fill);
 
+  const roseTex = await new THREE.TextureLoader().loadAsync("assets/rose-bloom.png");
+  roseTex.colorSpace = THREE.SRGBColorSpace;
+  roseTex.anisotropy = 4;
+  const roseAspect = roseTex.image ? roseTex.image.width / Math.max(1, roseTex.image.height) : 1;
+  const roseGeo = new THREE.PlaneGeometry(1, 1);
+  roseGeo.translate(0, 0.5, 0);
   const roseMesh = new THREE.InstancedMesh(
-    buildRoseGeometry(),
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+    roseGeo,
+    new THREE.MeshBasicMaterial({
+      map: roseTex,
+      transparent: true,
+      alphaTest: 0.35,
+      side: THREE.DoubleSide,
+      depthWrite: true,
+    }),
     FLOWER_MAX,
   );
   roseMesh.count = 0;
@@ -424,7 +361,8 @@ export async function createScene(canvas) {
   const legR = findNamed(janitor, "leg_r");
   const armL = findNamed(janitor, "arm_l");
   const armR = findNamed(janitor, "arm_r");
-  const socket = findNamed(janitor, "tool_socket") || armR || janitor;
+  const hand = findNamed(janitor, "arm_r_glove") || armR || janitor;
+  curlFist(hand);
   let toolMesh = null;
   let toolId = "";
   let rideMesh = null;
@@ -500,20 +438,14 @@ export async function createScene(canvas) {
       y: wander.right.y * j1 + wander.forward.y * j2,
       z: wander.right.z * j1 + wander.forward.z * j2,
     }, 0.35 + Math.abs(j1) * 1.35);
-    const normal = Planet.surfaceNormal(spot);
-    const frame = slopeFrame(normal, yaw);
-    const lift = 0.015;
     return {
       index,
       born: anim,
-      size: 1.05 + flowerHash(index + 503) * 0.55,
+      size: 0.42 + flowerHash(index + 503) * 0.32,
       spin: yaw,
-      px: spot.x + normal.x * lift,
-      py: spot.y + normal.y * lift,
-      pz: spot.z + normal.z * lift,
-      ux: frame.up.x, uy: frame.up.y, uz: frame.up.z,
-      rx: frame.right.x, ry: frame.right.y, rz: frame.right.z,
-      fx: frame.forward.x, fy: frame.forward.y, fz: frame.forward.z,
+      x: spot.x,
+      y: spot.y,
+      z: spot.z,
     };
   }
 
@@ -559,22 +491,50 @@ export async function createScene(canvas) {
   }
 
   function poseFlowers(anim) {
+    const cam = camera.position;
     for (let i = 0; i < flowers.length; i++) {
       const f = flowers[i];
       const age = Math.max(0, anim - f.born);
-      const t = Math.min(1, age / 0.9);
+      const t = Math.min(1, age / 0.85);
       const e = t * t * (3 - 2 * t);
-      const pop = e * (1 + Math.sin(e * Math.PI) * 0.16);
-      const sway = Math.sin(anim * 1.35 + f.spin) * 0.1 * e;
-      const s = f.size * pop;
-      const sy = s * (0.28 + 0.72 * Math.min(1, e * 1.25));
-      const ux = f.ux + f.rx * sway;
-      const uy = f.uy + f.ry * sway;
-      const uz = f.uz + f.rz * sway;
+      const pop = e * (1 + Math.sin(e * Math.PI) * 0.12);
+      const lean = Math.sin(anim * 1.35 + f.spin) * 0.12 * e;
+      const h = f.size * pop;
+      const w = h * roseAspect;
+      const up = _v.set(f.x, f.y, f.z).normalize();
+      const px = f.x;
+      const py = f.y;
+      const pz = f.z;
+      const toCamX = cam.x - px;
+      const toCamY = cam.y - py;
+      const toCamZ = cam.z - pz;
+      let rx = up.y * toCamZ - up.z * toCamY;
+      let ry = up.z * toCamX - up.x * toCamZ;
+      let rz = up.x * toCamY - up.y * toCamX;
+      let rl = Math.hypot(rx, ry, rz);
+      if (rl < 1e-5) {
+        rx = up.y;
+        ry = -up.x;
+        rz = 0;
+        rl = Math.hypot(rx, ry, rz) || 1;
+      }
+      rx /= rl;
+      ry /= rl;
+      rz /= rl;
+      const ux = up.x * Math.cos(lean) + rx * Math.sin(lean);
+      const uy = up.y * Math.cos(lean) + ry * Math.sin(lean);
+      const uz = up.z * Math.cos(lean) + rz * Math.sin(lean);
+      let fx = uy * rz - uz * ry;
+      let fy = uz * rx - ux * rz;
+      let fz = ux * ry - uy * rx;
+      const fl = Math.hypot(fx, fy, fz) || 1;
+      fx /= fl;
+      fy /= fl;
+      fz /= fl;
       flowerMatrix.set(
-        f.rx * s, ux * sy, f.fx * s, f.px,
-        f.ry * s, uy * sy, f.fy * s, f.py,
-        f.rz * s, uz * sy, f.fz * s, f.pz,
+        rx * w, ux * h, fx, px,
+        ry * w, uy * h, fy, py,
+        rz * w, uz * h, fz, pz,
         0, 0, 0, 1,
       );
       roseMesh.setMatrixAt(i, flowerMatrix);
@@ -607,9 +567,9 @@ export async function createScene(canvas) {
     }
   }
 
-  function placeUpright(object, pos, headingForward) {
+  function placeUpright(object, pos, headingForward, radial) {
     object.position.set(pos.x, pos.y, pos.z);
-    const n = Planet.surfaceNormal(pos);
+    const n = radial ? Planet.up(pos) : Planet.surfaceNormal(pos);
     const forward = headingForward || new THREE.Vector3(pos.z, 0, -pos.x).normalize();
     orientUp(object, n, forward);
   }
@@ -626,10 +586,10 @@ export async function createScene(canvas) {
 
   function ensureTool(id) {
     if (toolId === id && toolMesh) return;
-    if (toolMesh) socket.remove(toolMesh);
+    if (toolMesh) hand.remove(toolMesh);
     toolMesh = cloneModel("tool_" + id);
-    seatTool(toolMesh, id);
-    socket.add(toolMesh);
+    seatTool(toolMesh);
+    hand.add(toolMesh);
     toolId = id;
   }
 
@@ -684,13 +644,12 @@ export async function createScene(canvas) {
         flowerStamp = stamp;
         flowerGarden = garden;
       }
-      poseFlowers(anim);
     }
     ensureTool(frameStats.tool.id);
     ensureRide(state.riding);
     const pos = state.pos;
     const frameBasis = Planet.basis(pos, state.heading || 0);
-    placeUpright(player, pos, new THREE.Vector3(frameBasis.forward.x, frameBasis.forward.y, frameBasis.forward.z));
+    placeUpright(player, pos, new THREE.Vector3(frameBasis.forward.x, frameBasis.forward.y, frameBasis.forward.z), true);
     timeDelta = Math.max(0.001, Math.min(0.05, frame.dt || 1 / 60));
     stateRiding = !!state.riding;
     const lean = Math.max(-0.18, Math.min(0.18, (state.turnRate || 0) * 0.08));
@@ -712,6 +671,7 @@ export async function createScene(canvas) {
 
     const radius = Math.max(0.8, frameStats.radius / 30);
     const nrm = Planet.surfaceNormal(pos);
+    const radial = Planet.up(pos);
     ring.position.set(pos.x, pos.y, pos.z);
     ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(nrm.x, nrm.y, nrm.z));
     ring.scale.setScalar(radius);
@@ -729,7 +689,7 @@ export async function createScene(canvas) {
       const mesh = bots[i];
       const hover = robot.type === "drone" ? 0.45 : 0;
       const spot = { x: robot.x, y: robot.y, z: robot.z };
-      placeUpright(mesh, spot, new THREE.Vector3((robot.tx || robot.x) - robot.x, (robot.ty || robot.y) - robot.y, (robot.tz || robot.z) - robot.z));
+      placeUpright(mesh, spot, new THREE.Vector3((robot.tx || robot.x) - robot.x, (robot.ty || robot.y) - robot.y, (robot.tz || robot.z) - robot.z), true);
       const up = Planet.up(spot);
       mesh.position.add(new THREE.Vector3(up.x, up.y, up.z).multiplyScalar(hover + Math.sin(anim * 5 + i) * 0.04));
       const rotor = findNamed(mesh, "rotor");
@@ -771,7 +731,7 @@ export async function createScene(canvas) {
 
     const focus = new THREE.Vector3(pos.x, pos.y, pos.z);
     const back = new THREE.Vector3(frameBasis.forward.x, frameBasis.forward.y, frameBasis.forward.z);
-    const up = new THREE.Vector3(nrm.x, nrm.y, nrm.z);
+    const up = new THREE.Vector3(radial.x, radial.y, radial.z);
     let desired;
     let look;
     if (state.overview) {
@@ -811,7 +771,25 @@ export async function createScene(canvas) {
     sun.position.copy(focus).add(new THREE.Vector3(8, 14, 6));
     sun.target.position.copy(focus);
     fill.position.copy(camera.position);
+    if (handView) frameHand();
+    if (flowers.length) poseFlowers(anim);
     renderer.render(scene, camera);
+  }
+
+  let handView = null;
+  function frameHand() {
+    const palm = new THREE.Vector3();
+    hand.getWorldPosition(palm);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(player.quaternion).normalize();
+    const side = new THREE.Vector3(1, 0, 0).applyQuaternion(player.quaternion).normalize();
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion).normalize();
+    const eye = palm.clone().addScaledVector(up, 0.08);
+    if (handView === "side") eye.addScaledVector(side, 0.7);
+    else eye.addScaledVector(forward, 0.72);
+    camera.position.copy(eye);
+    camera.up.copy(up);
+    camera.lookAt(palm);
+    camera.updateMatrixWorld();
   }
 
   function faceDot(forward) {
@@ -895,6 +873,23 @@ export async function createScene(canvas) {
     flowerCount() {
       return flowers.length;
     },
+    gripGap() {
+      if (!toolMesh || !hand || !toolMesh.userData.gripLocal) return 1;
+      hand.updateWorldMatrix(true, true);
+      toolMesh.updateWorldMatrix(true, true);
+      const palm = new THREE.Vector3();
+      hand.getWorldPosition(palm);
+      const grip = toolMesh.userData.gripLocal.clone().applyMatrix4(toolMesh.matrixWorld);
+      return grip.distanceTo(palm);
+    },
+    upAlign() {
+      const radial = player.position.clone().normalize();
+      const upright = new THREE.Vector3(0, 1, 0).applyQuaternion(player.quaternion);
+      return upright.dot(radial);
+    },
+    focusHand(side) {
+      handView = side || null;
+    },
   };
 }
 
@@ -952,31 +947,71 @@ function measureFace(root, slot) {
   return groupCentroid(faceMesh, faceSlot).sub(groupCentroid(body, -1));
 }
 
-const HELD = {
-  brush: [-Math.PI / 2, 0.15, 0.35],
-  vac: [-0.55, 0.25, 0],
-  ind: [-0.5, 0.2, 0],
-  cyclone: [-0.7, 0.1, 0],
-  grav: [-0.9, 0, 0],
-  comet: [-0.45, 0.15, 0],
-};
+const SHAFT_NAMES = ["stick", "handle", "pole", "grip"];
 
-function seatTool(mesh, id) {
-  const rot = HELD[id];
+function shaftMesh(root) {
+  let found = null;
+  root.traverse((obj) => {
+    if (found || !obj.isMesh) return;
+    if (SHAFT_NAMES.includes(obj.name)) found = obj;
+  });
+  return found;
+}
+
+function seatTool(mesh) {
   mesh.position.set(0, 0, 0);
-  mesh.rotation.set(0, 0, 0);
-  mesh.scale.setScalar(1);
-  if (id === "brush") mesh.rotation.x = -Math.PI / 2;
-  else if (rot) mesh.rotation.set(rot[0], rot[1], rot[2]);
+  mesh.quaternion.identity();
+  mesh.scale.set(1, 1, 1);
   mesh.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(mesh);
-  const height = box.max.y - box.min.y;
-  const grip = new THREE.Vector3(
-    (box.min.x + box.max.x) / 2,
-    box.max.y - height * (rot ? 0.42 : 0.08),
-    (box.min.z + box.max.z) / 2,
-  );
-  mesh.position.sub(grip);
+  const shaft = shaftMesh(mesh) || mesh;
+  const box = new THREE.Box3().setFromObject(shaft);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  let axis = 1;
+  if (size.x >= size.y && size.x >= size.z) axis = 0;
+  else if (size.z > size.y && size.z >= size.x) axis = 2;
+  const head = center.clone();
+  const tail = center.clone();
+  head.setComponent(axis, box.min.getComponent(axis));
+  tail.setComponent(axis, box.max.getComponent(axis));
+  let headScore = 0;
+  let tailScore = 0;
+  mesh.traverse((obj) => {
+    if (!obj.isMesh || obj === shaft) return;
+    const mid = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
+    headScore += 1 / (mid.distanceTo(head) + 0.05);
+    tailScore += 1 / (mid.distanceTo(tail) + 0.05);
+  });
+  if (tailScore > headScore) {
+    const swap = head.clone();
+    head.copy(tail);
+    tail.copy(swap);
+  }
+  const length = head.distanceTo(tail) || 1;
+  const hold = length < 0.45 ? 0.42 : 0.16;
+  const gripLocal = tail.clone().lerp(head, hold);
+  const dir = head.clone().sub(tail);
+  if (dir.lengthSq() < 1e-8) dir.set(0, -1, 0);
+  dir.normalize();
+  mesh.quaternion.setFromUnitVectors(dir, new THREE.Vector3(0, -1, 0));
+  const parked = gripLocal.clone().applyQuaternion(mesh.quaternion);
+  mesh.position.copy(parked).multiplyScalar(-1);
+  mesh.userData.gripLocal = gripLocal;
+}
+
+function curlFist(handMesh) {
+  ["arm_r_finger_0", "arm_r_finger_1", "arm_r_finger_2"].forEach((name, i) => {
+    const finger = findNamed(handMesh.parent || handMesh, name) || findNamed(handMesh, name);
+    if (!finger) return;
+    handMesh.add(finger);
+    const spread = (i - 1) * 0.35;
+    finger.position.set(Math.sin(spread) * 0.02, (i - 1) * 0.022, 0.086);
+    finger.scale.set(1.15, 1.7, 1.15);
+    finger.rotation.set(0.35, spread * 0.25, Math.PI / 2);
+    finger.userData.rest = finger.quaternion.clone();
+  });
 }
 
 function textSprite(text, color) {

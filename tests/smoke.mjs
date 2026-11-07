@@ -237,6 +237,29 @@ async function main() {
       (toolB.z - toolB.pz) - (toolA.z - toolA.pz),
     );
     assert(toolMove > 0.12, "tool should move while sweeping, delta " + toolMove);
+    const grips = await ev(`
+      const modes = ["idle", "walk", "sweep"];
+      const rows = [];
+      for (let i = 0; i < __LUNAR.economy.toolCount; i++) {
+        __LUNAR.testing.setTool(i);
+        for (const mode of modes) {
+          __LUNAR.testing.pose(mode);
+          rows.push({ i, id: __LUNAR.testing.toolId(), mode, gap: __LUNAR.testing.gripGap() });
+        }
+      }
+      __LUNAR.testing.focusHand(null);
+      return rows;
+    `);
+    for (const row of grips) {
+      assert(row.gap < 0.03, "grip " + row.id + " " + row.mode + " gap " + row.gap);
+    }
+    const slope = await ev(`
+      const tilt = __LUNAR.testing.standOnSlope();
+      __LUNAR.testing.pose("idle");
+      return { tilt, up: __LUNAR.testing.upAlign() };
+    `);
+    assert(slope.tilt < 0.92, "expected a steep slope, normal dot " + slope.tilt);
+    assert(slope.up > 0.98, "walker up should be radial, dot " + slope.up);
     assert(title === "Марсианские дворники", "title " + title);
     const heading = await ev("document.querySelector('h1').textContent");
     assert(heading.includes("Марсианские дворники"), "heading");
