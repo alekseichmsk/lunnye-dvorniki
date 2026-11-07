@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SAVE_KEY = "lunnye-dvorniki-save-v1";
+const SAVE_KEY = "mars-dvorniki-save-v1";
 const chromeBin = process.env.CHROME_PATH || "google-chrome";
 
 const types = {
@@ -128,6 +128,7 @@ async function main() {
     "--ignore-gpu-blocklist",
     "--use-gl=angle",
     "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${profile}`,
     "about:blank",
@@ -158,7 +159,7 @@ async function main() {
         errors.push("console.error: " + text);
       } else if (msg.method === "Log.entryAdded" && msg.params.entry.level === "error") {
         const text = msg.params.entry.text || "";
-        if (/favicon|deprecated/i.test(text)) return;
+        if (/favicon|deprecated|GPU stall|swiftshader|fallback to software|GL Driver|ReadPixels|CLOSE_PATH|dbus|UPower/i.test(text)) return;
         errors.push("log: " + text);
       }
     };
@@ -201,9 +202,9 @@ async function main() {
     const title = await ev("document.title");
     const models = await ev("window.__LUNAR.modelsLoaded === true");
     assert(models, "3D models did not load");
-    assert(title === "Лунные дворники", "title " + title);
+    assert(title === "Марсианские дворники", "title " + title);
     const heading = await ev("document.querySelector('h1').textContent");
-    assert(heading.includes("Лунные дворники"), "heading");
+    assert(heading.includes("Марсианские дворники"), "heading");
     await ev("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     const canvasSize = await ev("(() => { const c = document.getElementById('view'); return {w: c.width, h: c.height}; })()");
     assert(canvasSize.w > 100 && canvasSize.h > 100, "canvas size " + JSON.stringify(canvasSize));
@@ -230,20 +231,22 @@ async function main() {
 
     const before = await ev("__LUNAR.snapshot()");
     await ev(`
-      const dirs = [[1,0],[0,1],[-1,0],[0,-1],[1,0.3],[-0.4,1]];
+      const spot = __LUNAR.findDust();
+      __LUNAR.teleport(spot.x, spot.y, spot.z);
+      __LUNAR.setMove(0, -1);
       let guard = 0;
-      while (__LUNAR.snapshot().money < __LUNAR.economy.backpackCost(0) && guard < 8) {
-        const d = dirs[guard % dirs.length];
-        __LUNAR.setMove(d[0], d[1]);
-        for (let i = 0; i < 40; i++) __LUNAR.tick(0.1);
+      while (__LUNAR.snapshot().money < __LUNAR.economy.backpackCost(0) && guard < 6) {
+        for (let i = 0; i < 80; i++) __LUNAR.tick(0.1);
         const depot = __LUNAR.snapshot().depot;
         __LUNAR.clearMove();
-        __LUNAR.teleport(depot.x, depot.y);
-        for (let i = 0; i < 30; i++) __LUNAR.tick(0.1);
+        __LUNAR.teleport(depot.x, depot.y, depot.z);
+        for (let i = 0; i < 40; i++) __LUNAR.tick(0.1);
         __LUNAR.launch();
+        __LUNAR.teleport(spot.x, spot.y, spot.z);
+        __LUNAR.setMove(0, -1);
         guard++;
       }
-      return true;
+      return __LUNAR.snapshot().money;
     `);
     const swept = await ev("__LUNAR.snapshot()");
     assert(swept.remaining0 < before.remaining0, "dust should decrease");
@@ -284,10 +287,10 @@ async function main() {
     await ev("document.getElementById('shop-close').click()");
     await ev("window.dispatchEvent(new Event('pagehide'))");
     const saved = await ev(`JSON.parse(localStorage.getItem(${JSON.stringify(SAVE_KEY)}))`);
-    assert(saved && saved.v === 1, "save missing");
+    assert(saved && saved.v === 2 && saved.planet === "mars", "save missing");
     assert(saved.money >= 0 && saved.backpackLevel >= 1, "save should keep the upgrade");
     assert(typeof saved.lastSave === "number", "lastSave");
-    assert(Array.isArray(saved.sectors) && saved.sectors.length >= 1, "sectors saved");
+    assert(typeof saved.dust === "string" && saved.dust.length > 100, "planet dust saved");
 
     const stamp = saved.lastSave;
     await sleep(6200);

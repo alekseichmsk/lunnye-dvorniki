@@ -1,14 +1,14 @@
-# Лунные дворники
+# Марсианские дворники
 
-Однопользовательская 3D-игра про посёлок **«Тихая осыпь»**: мети лунную пыль, носи её в рюкзаке к зелёному приёмнику и запускай рейс за кредиты. Инструменты, техника и роботы открываются по очереди, участки становятся пыльнее и дороже, а **новая смена** оставляет нашивки и начинает двор сначала.
+Однопользовательская 3D-игра про станцию **«Ржавый берег»**. Мир — один круглый Марс: идёшь по сфере, пыль лежит на рельефе, рюкзак несёшь к севшему кораблю и запускаешь рейс. Края планеты (равнины, нагорья, дюны, каньон, склоны Олимпа, полярные шапки) пыльнее и дороже. **Новая смена** оставляет нашивки и засыпает планету заново.
 
-The scene is Three.js, vendored in `vendor/three/` (no CDN, no build step). Models are glTF files in `assets/models/`. Dust is a tile mask on the ground and clears under the tool. The camera follows in a low third-person view. Pixel ratio is capped at 1.5 and there is one shadow map, so a mid-range phone can run it.
+Сцена на Three.js из `vendor/three/` (без CDN и без сборки). Модели — glTF в `assets/models/`. Пыль — маска на каждой грани кубической сферы и стирается там, где прошёл инструмент. Камера идёт за дворником над кривым горизонтом, персонаж и техника стоят по нормали к поверхности. Пиксельное отношение ограничено 1.5, теневая карта одна.
 
-Sources and licenses: [assets/CREDITS.md](assets/CREDITS.md).
+Источники и лицензии: [assets/CREDITS.md](assets/CREDITS.md).
 
-## Rebuild the models
+## Собрать модели
 
-Blender 4 headless:
+Нужен Blender 4 в консоли:
 
 ```bash
 blender --background --python blender/build_models.py
@@ -16,57 +16,58 @@ blender --background --python blender/import_cc0.py
 blender --background --python blender/render_models.py
 ```
 
-`build_models.py` makes the cleaning tools, the rocket, the drone, the flag and the cactus. `import_cc0.py` recolors Kenney Space Kit models (CC0) and adds axle wheels plus the janitor's tool socket. It looks for the pack in `third_party/kenney-space-kit/Models/GLTF format/`. `render_models.py` writes two angles of every `.blend` into `/tmp/lunar-renders/`.
+`build_models.py` делает инструменты, корабль-приёмник, посадочные модули, ракету, дрон, флаг и кактус. `import_cc0.py` перекрашивает модели Kenney Space Kit (CC0) и ставит гнездо инструмента. Набор ищется в `third_party/kenney-space-kit/Models/GLTF format/`. `render_models.py` пишет два ракурса каждого `.blend` в `/tmp/lunar-renders/`.
 
-## Play locally
+## Запуск
 
-From the repository root:
+Из корня репозитория:
 
 ```bash
 python3 -m http.server 8931
 ```
 
-Open [http://127.0.0.1:8931](http://127.0.0.1:8931).
+Открыть [http://127.0.0.1:8931](http://127.0.0.1:8931).
 
-## Controls
+## Управление
 
-- Phone: virtual joystick on the left. Large buttons on the right.
-- Desktop: WASD or arrow keys. `E` opens the shop. Space launches a shipment when you stand on a receiver.
-- Walk over grey dust until the ground shows through. A full backpack has to be carried to a green pad. The pad unloads into a shared hopper. **Запустить рейс** pays you.
-- At 80% clean, the next yard unlocks across the gangway. Seasons repeat the eight yards with denser, more valuable dust.
-- Robots haul dust into the hopper while you play. While the tab is closed they ship it themselves (half pace, 8 hours max) and do not unlock new yards.
-- **Новая смена** (prestige) wipes the run and keeps badges that raise shipment pay and cleaning power.
-- **Стереть сохранение** in the shop asks before wiping everything, including badges.
+- Телефон: джойстик слева, крупные кнопки справа.
+- Компьютер: WASD или стрелки. `E` открывает магазин. Пробел запускает рейс, когда стоишь у корабля.
+- Иди по ржавой пыли. Полный рюкзак неси к кораблю: пыль съезжает по рампе в трюм. **Запустить рейс** поднимает корабль и сажает его обратно, кредиты падают на счёт.
+- Новый край открывается, когда до него дошёл. На 62% чистоты край считается выметенным. Пыль гуще и дороже у каньона, Олимпа и шапок.
+- Запасные приёмники — меньшие посадочные модули. Роботы носят пыль в общий трюм.
+- Пока вкладка закрыта, роботы сами отправляют рейс (вполсилы, не дольше 8 часов) и не открывают новые края.
+- **Новая смена** стирает заход и оставляет нашивки: они поднимают оплату и силу уборки.
+- **Стереть сохранение** спрашивает подтверждение и сносит всё, включая нашивки.
 
-The game saves to `localStorage` every 5 seconds and when the page closes.
+Сохранение пишется в `localStorage` каждые 5 секунд и при закрытии страницы. Старый ключ «Лунных дворников» переносится: кредиты, уровни, нашивки и техника остаются, пыль и позиция начинаются заново.
 
-## Smoke test
+## Проверка
 
-Requires Node.js 18+ and Google Chrome:
+Нужны Node.js 18+ и Google Chrome:
 
 ```bash
 node tests/smoke.mjs
 ```
 
-The test loads the page in headless Chrome, sweeps dust, sells a shipment, buys an upgrade, checks the save, prestige, reset, and offline income. It fails if the page throws or logs a console error.
+Тест открывает страницу в headless Chrome, метёт пыль, продаёт рейс, покупает рюкзак, проверяет сохранение, смену, сброс и офлайн-доход. Падает, если страница бросает исключение или пишет ошибку в консоль.
 
 ## GitHub Pages
 
-The site is the repository root: `index.html`, `game.js`, `style.css`, and `assets/`. Nothing needs compiling.
+Сайт — корень репозитория: `index.html`, `game.js`, `planet.js`, `scene3d.js`, `style.css`, `assets/`, `vendor/`. Собирать ничего не нужно.
 
-1. Push the repository to GitHub.
-2. Open **Settings → Pages**.
-3. Under **Build and deployment**, choose **Deploy from a branch**.
-4. Branch: `main`. Folder: **`/ (root)`**. Save.
-5. When the deployment finishes, the game is at `https://<user>.github.io/<repo>/`.
+1. Залить репозиторий на GitHub.
+2. Открыть **Settings → Pages**.
+3. В **Build and deployment** выбрать **Deploy from a branch**.
+4. Ветка `main`, папка **`/ (root)`**. Сохранить.
+5. После выкладки игра будет на `https://<user>.github.io/<repo>/`.
 
-`.nojekyll` is included so Pages serves every file as-is. Paths are relative, so a project site (`username.github.io/repo/`) works the same as a user site.
+`.nojekyll` уже лежит в корне, пути относительные, поэтому и пользовательский сайт, и сайт проекта открываются одинаково.
 
-## Known issues
+## Известные ограничения
 
-- Offline robots are less efficient than active play: the away-time math does not walk them tile by tile, and they cannot open the next yard while you are gone.
-- There is no sound.
-- A very long run without a new shift stores one dust map per yard. Hundreds of yards make a larger `localStorage` save.
-- Robots can bunch up and sometimes snap back to the home pad if a rock wedges them.
-- Numbers past about `1e300` are not meaningful. Reaching that takes a very long chain of seasons.
-- Balance is tuned for a prototype, not a finished economy.
+- Офлайн-роботы не ходят по клеткам: доход считается по самому пыльному краю и вполсилы.
+- Звука нет.
+- Рельеф и пыль считаются на процессоре при старте. На слабом телефоне первый кадр может подождать.
+- Роботы иногда сбиваются в кучу.
+- Числа дальше примерно `1e300` уже не имеют смысла.
+- Баланс — прототип, не вылизанная экономика.

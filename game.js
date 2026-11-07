@@ -1,9 +1,11 @@
 import { createScene } from "./scene3d.js";
+import * as Planet from "./planet.js";
 
 (() => {
   "use strict";
 
-  const SAVE_KEY = "lunnye-dvorniki-save-v1";
+  const SAVE_KEY = "mars-dvorniki-save-v1";
+  const OLD_SAVE_KEY = "lunnye-dvorniki-save-v1";
   const COLS = 30;
   const ROWS = 22;
   const TILE = 30;
@@ -44,7 +46,7 @@ import { createScene } from "./scene3d.js";
   ];
 
   const VEHICLES = [
-    { id: "pyh", name: "Лунокат «Пых»", blurb: "Быстрее шага и чуть шире метёт.", speed: 1.4, power: 1.22, radius: 16, cost: 12000, color: "#ffd23f" },
+    { id: "pyh", name: "Марсоход «Пых»", blurb: "Быстрее шага и чуть шире метёт.", speed: 1.4, power: 1.22, radius: 16, cost: 12000, color: "#ffd23f" },
     { id: "blin", name: "Каток «Блин»", blurb: "Медленный блин на весь двор.", speed: 0.95, power: 1.9, radius: 54, cost: 48000, color: "#ff8fab" },
     { id: "iskra", name: "Гонщик «Искра»", blurb: "Почти не задевает края, зато летит.", speed: 1.9, power: 1.08, radius: 6, cost: 125000, color: "#8ee7ff" },
   ];
@@ -216,11 +218,12 @@ import { createScene } from "./scene3d.js";
   }
 
   function spawnPoint() {
-    return { x: 120, y: SH / 2 };
+    return Planet.spawnNearHome(7);
   }
 
   function homeDepot() {
-    return { x: 120, y: SH / 2, home: true };
+    const p = Planet.homeSurface();
+    return { x: p.x, y: p.y, z: p.z, home: true };
   }
 
   function capacityAt(level) {
@@ -336,11 +339,12 @@ import { createScene } from "./scene3d.js";
       seenDust: false,
       launches: 0,
       cleaned: 0,
-      px: sp.x,
-      py: sp.y,
+      pos: { x: sp.x, y: sp.y, z: sp.z },
+      heading: 0.6,
+      dust: null,
+      discovered: { plains: true },
       backpack: { mass: 0, worth: 0 },
       hopper: { mass: 0, worth: 0 },
-      sectors: [],
       nearDepot: false,
       launchLock: 0,
       sweepCd: 0,
@@ -412,14 +416,14 @@ import { createScene } from "./scene3d.js";
     floaters.length = 0;
     sweeps.length = 0;
     rockets.length = 0;
-    state.sectors = [createSector(0)];
+    state.dust = Planet.createDust();
+    state.dust.stamp = 1;
     const sp = spawnPoint();
-    state.px = sp.x;
-    state.py = sp.y;
-    cam.x = sp.x;
-    cam.y = sp.y;
+    state.pos = { x: sp.x, y: sp.y, z: sp.z };
+    state.heading = 0.6;
+    state.discovered = { plains: true };
     shake = 0;
-    lastHere = -2;
+    lastHere = "";
   }
 
   function encodeF32(f32) {
@@ -500,15 +504,15 @@ import { createScene } from "./scene3d.js";
 
   function allDepots() {
     const list = [homeDepot()];
-    for (const d of state.placed) list.push({ x: d.x, y: d.y, home: false });
+    for (const d of state.placed) list.push({ x: d.x, y: d.y, z: d.z, home: false });
     return list;
   }
 
-  function nearestDepot(x, y) {
+  function nearestDepot(pos) {
     let best = homeDepot();
     let bd = Infinity;
     for (const d of allDepots()) {
-      const dist = Math.hypot(d.x - x, d.y - y);
+      const dist = Planet.geodesic(pos, d);
       if (dist < bd) {
         bd = dist;
         best = d;
@@ -546,134 +550,62 @@ import { createScene } from "./scene3d.js";
     return h;
   }
 
-  function burst(x, y, color, n, speed) {
-    for (let i = 0; i < n && particles.length < 420; i++) {
+  function burst(pos, color, n, speed) {
+    const up = Planet.up(pos);
+    for (let i = 0; i < n && particles.length < 80; i++) {
       const a = Math.random() * Math.PI * 2;
-      const s = speed * (0.35 + Math.random());
+      const s = (speed || 2) * 0.04 * (0.4 + Math.random());
       particles.push({
-        x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s - 20,
+        x: pos.x, y: pos.y, z: pos.z,
+        vx: Math.cos(a) * s + up.x * 0.4,
+        vy: Math.sin(a) * s + up.y * 0.4,
+        vz: (Math.random() - 0.5) * s + up.z * 0.4,
         age: 0,
-        life: 0.35 + Math.random() * 0.45,
-        size: 2 + Math.random() * 3.5,
+        life: 0.35 + Math.random() * 0.4,
+        size: 2 + Math.random() * 2,
         color,
-        g: 40,
       });
     }
   }
 
-  function spawnPuff(x, y, gold) {
-    if (particles.length > 380) return;
+  function spawnPuff(pos, gold) {
+    if (particles.length > 70) return;
+    const up = Planet.up(pos);
     particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 50,
-      vy: -30 - Math.random() * 50,
+      x: pos.x, y: pos.y, z: pos.z,
+      vx: up.x * 0.6, vy: up.y * 0.6, vz: up.z * 0.6,
       age: 0,
-      life: 0.4 + Math.random() * 0.25,
-      size: 3 + Math.random() * 3,
-      color: gold ? "#ffd23f" : "#efe8f4",
-      g: 50,
+      life: 0.45,
+      size: 3,
+      color: gold ? "#ffd23f" : "#e7b089",
     });
   }
 
-  function floater(text, x, y, color) {
-    floaters.push({ text, x, y, age: 0, life: 1.05, color: color || "#24183a" });
-    if (floaters.length > 24) floaters.shift();
+  function floater(text, pos, color) {
+    floaters.push({ text, x: pos.x, y: pos.y, z: pos.z, age: 0, life: 1.05, color: color || "#3a2018" });
+    if (floaters.length > 16) floaters.shift();
   }
 
-  function collect(power, dt, x, y, radius, bag, cap) {
+  function meters(pixels) {
+    return pixels / 30;
+  }
+
+  function collect(power, dt, pos, radiusPx, bag, cap) {
     const space = cap - bag.mass;
-    if (space <= 0.05 || power <= 0 || radius <= 0) return 0;
+    if (!state.dust || space <= 0.05 || power <= 0 || radiusPx <= 0) return 0;
     const budget = Math.min(power * dt, space);
-    hitCount = 0;
-    const r2 = radius * radius;
-    const i0 = Math.max(0, Math.floor((x - radius) / STRIDE));
-    const i1 = Math.min(state.sectors.length - 1, Math.floor((x + radius) / STRIDE));
-    let weight = 0;
-    for (let si = i0; si <= i1; si++) {
-      const o = sectorOrigin(si);
-      const sector = state.sectors[si];
-      const c0 = Math.max(0, Math.floor((x - radius - o.x) / TILE));
-      const c1 = Math.min(COLS - 1, Math.floor((x + radius - o.x) / TILE));
-      const r0 = Math.max(0, Math.floor((y - radius - o.y) / TILE));
-      const r1 = Math.min(ROWS - 1, Math.floor((y + radius - o.y) / TILE));
-      if (c1 < c0 || r1 < r0) continue;
-      const base = valueOf(si);
-      for (let row = r0; row <= r1; row++) {
-        for (let col = c0; col <= c1; col++) {
-          const tx = o.x + (col + 0.5) * TILE;
-          const ty = o.y + (row + 0.5) * TILE;
-          const dx = tx - x;
-          const dy = ty - y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 > r2) continue;
-          const ti = row * COLS + col;
-          const dust = sector.dust[ti];
-          if (dust <= 0.08) continue;
-          const dist = Math.sqrt(d2);
-          const w = (1 - dist / radius) ** 2;
-          const hit = allocHit();
-          hit.sector = sector;
-          hit.ti = ti;
-          hit.dust = dust;
-          hit.w = w;
-          hit.spark = sparkleMul(si, ti) > 1;
-          hit.value = base * (hit.spark ? 3 : 1);
-          hit.wx = tx;
-          hit.wy = ty;
-          weight += w;
-        }
-      }
+    const result = Planet.cleanAround(state.dust, pos, Math.max(meters(radiusPx), 2.8), budget);
+    if (result.taken > 0) {
+      bag.mass += result.taken;
+      bag.worth += result.worth;
+      state.dust.stamp = (state.dust.stamp || 0) + 1;
+      if (Math.random() < 0.45) spawnPuff(pos, result.sparks > 0);
     }
-    if (!hitCount || weight <= 0) return 0;
-    let taken = 0;
-    let spawned = 0;
-    for (let i = 0; i < hitCount; i++) {
-      const hit = hitPool[i];
-      const want = Math.min(hit.dust, budget * (hit.w / weight));
-      if (want <= 0.0001) continue;
-      hit.sector.dust[hit.ti] = Math.max(0, hit.dust - want);
-      bag.mass += want;
-      bag.worth += want * hit.value;
-      taken += want;
-      if (spawned < 4 && (hit.spark || Math.random() < 0.18)) {
-        spawnPuff(hit.wx, hit.wy, hit.spark);
-        spawned += 1;
-      }
-    }
-    return taken;
+    return result.taken;
   }
 
-  function pickRobotTarget() {
-    let best = null;
-    let bestV = -1;
-    for (const s of state.sectors) {
-      let rem = 0;
-      const dust = s.dust;
-      for (let i = 0; i < dust.length; i++) rem += dust[i];
-      if (rem < 12) continue;
-      const v = valueOf(s.index);
-      if (v > bestV) {
-        bestV = v;
-        best = s;
-      }
-    }
-    if (!best) return null;
-    let chosen = -1;
-    let bestDust = 0;
-    for (let k = 0; k < 18; k++) {
-      const i = (Math.random() * best.dust.length) | 0;
-      if (best.dust[i] > bestDust) {
-        bestDust = best.dust[i];
-        chosen = i;
-      }
-    }
-    if (chosen < 0) return null;
-    const col = chosen % COLS;
-    const row = (chosen / COLS) | 0;
-    const o = sectorOrigin(best.index);
-    return { x: o.x + (col + 0.5) * TILE, y: o.y + (row + 0.5) * TILE };
+  function robotPos(r) {
+    return { x: r.x, y: r.y, z: r.z };
   }
 
   function updateRobots(dt) {
@@ -683,65 +615,45 @@ import { createScene } from "./scene3d.js";
       const def = robotDef(r.type);
       const cap = def.cap * (1 + state.patches * 0.05);
       r.retarget -= dt;
+      const pos = robotPos(r);
       if (r.mass >= cap - 0.2) r.mode = "dump";
       if (r.mode === "dump") {
-        const d = nearestDepot(r.x, r.y);
+        const d = nearestDepot(pos);
         r.tx = d.depot.x;
         r.ty = d.depot.y;
-        if (d.dist < 40) {
+        r.tz = d.depot.z;
+        if (d.dist < 5) {
           state.hopper.mass += r.mass;
           state.hopper.worth += r.worth;
           r.mass = 0;
           r.worth = 0;
           r.mode = "seek";
           r.retarget = 0;
-          burst(d.depot.x, d.depot.y, "#b8ffe8", 8, 50);
+          burst(d.depot, "#ffb089", 8, 2);
         }
       } else if (r.retarget <= 0) {
-        const target = pickRobotTarget();
-        if (!target) {
-          const home = homeDepot();
-          r.tx = home.x;
-          r.ty = home.y;
-        } else {
-          r.tx = target.x + ((ri % 5) - 2) * 18;
-          r.ty = target.y + ((ri % 3) - 1) * 16;
-        }
-        r.retarget = 0.65 + (ri % 5) * 0.08;
+        const biome = Planet.bestDustyBiome(state.dust);
+        const target = Planet.randomDustyPoint(state.dust, biome);
+        r.tx = target.x;
+        r.ty = target.y;
+        r.tz = target.z;
+        r.retarget = 0.8 + (ri % 4) * 0.15;
       }
-      const dx = (r.tx || r.x) - r.x;
-      const dy = (r.ty || r.y) - r.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const nx = r.x + (dx / dist) * def.speed * dt;
-      const ny = r.y + (dy / dist) * def.speed * dt;
-      const bx = r.x;
-      const by = r.y;
-      moveEntity(r, nx, ny);
-      if (!inWalkable(r.x, r.y)) {
-        const home = homeDepot();
-        r.x = home.x + 16;
-        r.y = home.y + 28;
-      }
-      const moved = Math.hypot(r.x - bx, r.y - by);
-      if (moved < def.speed * dt * 0.25) {
-        r.stuck = (r.stuck || 0) + dt;
-        if (r.stuck > 0.75) {
-          r.stuck = 0;
-          r.retarget = 0;
-          r.x += ((ri % 2) ? 18 : -18);
-          r.y += 10;
-        }
-      } else r.stuck = 0;
+      const target = { x: r.tx || pos.x, y: r.ty || pos.y, z: r.tz || pos.z };
+      Planet.moveAlong(pos, Planet.sub(target, pos), meters(def.speed) * dt);
+      r.x = pos.x;
+      r.y = pos.y;
+      r.z = pos.z;
       if (r.mode !== "dump") {
-        const got = collect(def.rate * mul, dt, r.x, r.y, def.radius, r, cap);
+        const got = collect(def.rate * mul, dt, pos, def.radius, r, cap);
         if (got > 0) state.cleaned += got;
       }
     }
   }
 
   function updateUnload(dt) {
-    const near = nearestDepot(state.px, state.py);
-    state.nearDepot = near.dist < 64;
+    const near = nearestDepot(state.pos);
+    state.nearDepot = near.dist < (near.depot.home ? 7.5 : 5.2);
     if (!state.nearDepot || state.backpack.mass <= 0) return;
     const rate = Math.max(capacity(), 900) * 2;
     const move = Math.min(state.backpack.mass, rate * dt);
@@ -755,18 +667,20 @@ import { createScene } from "./scene3d.js";
     }
     state.hopper.mass += move;
     state.hopper.worth += worth;
-    if (Math.random() < dt * 10) spawnPuff(state.px, state.py, false);
+    if (Math.random() < dt * 8) spawnPuff(state.pos, false);
   }
 
   function checkUnlocks() {
-    let guard = 0;
-    while (guard++ < 3) {
-      const last = state.sectors[state.sectors.length - 1];
-      if (!last || cleanliness(last) < UNLOCK_AT) break;
-      const created = createSector(state.sectors.length);
-      state.sectors.push(created);
-      banner("Открыт участок: " + sectorTitle(created.index));
-      burst(state.px, state.py, "#ffc857", 26, 120);
+    const biome = Planet.biomeAt(state.pos);
+    if (!state.discovered[biome.id]) {
+      state.discovered[biome.id] = true;
+      banner("Новый край: " + biome.name);
+      burst(state.pos, "#ffb089", 18, 2);
+    }
+    const clean = Planet.biomeClean(state.dust, Planet.BIOMES.findIndex((b) => b.id === biome.id));
+    if (clean >= 0.62 && !state.discovered[biome.id + ":clear"]) {
+      state.discovered[biome.id + ":clear"] = true;
+      banner(biome.short + " выметен");
     }
   }
 
@@ -800,15 +714,14 @@ import { createScene } from "./scene3d.js";
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.age += dt;
-      p.vy += (p.g || 0) * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.x += (p.vx || 0) * dt;
+      p.y += (p.vy || 0) * dt;
+      p.z += (p.vz || 0) * dt;
       if (p.age >= p.life) particles.splice(i, 1);
     }
     for (let i = floaters.length - 1; i >= 0; i--) {
       const f = floaters[i];
       f.age += dt;
-      f.y -= 28 * dt;
       if (f.age >= f.life) floaters.splice(i, 1);
     }
     for (let i = sweeps.length - 1; i >= 0; i--) {
@@ -821,11 +734,7 @@ import { createScene } from "./scene3d.js";
     }
   }
 
-  function updateCamera(dt) {
-    const k = Math.min(1, dt * 6);
-    cam.x += (state.px - cam.x) * k;
-    cam.y += (state.py - cam.y) * k;
-  }
+  function updateCamera() {}
 
   function update(dt) {
     if (paused) return;
@@ -836,40 +745,32 @@ import { createScene } from "./scene3d.js";
     frameStats = combatStats();
     const vec = uiBlocked() ? { x: 0, y: 0 } : movementVec();
     frameMoving = vec.x !== 0 || vec.y !== 0;
-    if (vec.x > 0.2) frameFacing = 1;
-    else if (vec.x < -0.2) frameFacing = -1;
+    frameFacing = vec.x >= 0 ? 1 : -1;
     frameCleaning = false;
     if (!uiBlocked()) {
-      const nx = state.px + vec.x * frameStats.speed * dt;
-      const ny = state.py + vec.y * frameStats.speed * dt;
-      const body = { x: state.px, y: state.py };
-      moveEntity(body, nx, ny);
-      state.px = body.x;
-      state.py = body.y;
+      const frame = Planet.basis(state.pos, state.heading || 0);
+      const wish = Planet.add(Planet.scale(frame.right, vec.x), Planet.scale(frame.forward, -vec.y));
+      if (frameMoving) {
+        Planet.moveAlong(state.pos, wish, meters(frameStats.speed) * dt);
+        state.heading = Planet.headingFromWish(state.pos, wish, state.heading);
+      }
       const cap = capacity();
       const before = state.backpack.mass;
-      const taken = collect(frameStats.power, dt, state.px, state.py, frameStats.radius, state.backpack, cap);
+      const taken = collect(frameStats.power, dt, state.pos, frameStats.radius, state.backpack, cap);
       if (taken > 0) {
         frameCleaning = true;
         state.seenDust = true;
         state.cleaned += taken;
         state.sweepCd -= dt;
         if (state.sweepCd <= 0) {
-          sweeps.push({
-            x: state.px,
-            y: state.py,
-            r: frameStats.radius,
-            age: 0,
-            life: 0.32,
-            a: anim * 3,
-          });
+          sweeps.push({ age: 0, life: 0.32 });
           state.sweepCd = 0.12;
         }
       }
       if (state.backpack.mass >= cap - 0.4 && taken <= 0 && dustUnderPlayer() > 8) {
         state.fullCd -= dt;
         if (state.fullCd <= 0) {
-          floater("Рюкзак полон", state.px, state.py - 28, "#ff6b6b");
+          floater("Рюкзак полон", state.pos, "#ff6b6b");
           state.fullCd = 1.7;
         }
       }
@@ -886,23 +787,18 @@ import { createScene } from "./scene3d.js";
   }
 
   function dustUnderPlayer() {
-    const s = sectorIndexAt(state.px, state.py);
-    if (s == null) return 0;
-    const o = sectorOrigin(s);
-    const col = Math.floor((state.px - o.x) / TILE);
-    const row = Math.floor((state.py - o.y) / TILE);
-    if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return 0;
-    return state.sectors[s].dust[row * COLS + col];
+    if (!state.dust) return 0;
+    return state.dust.amount[Planet.cellIndex(state.pos)] || 0;
   }
 
   function tryLaunch() {
     if (uiBlocked()) return false;
     if (!state.nearDepot) {
-      toast("Подойди к зелёному приёмнику");
+      toast("Подойди к кораблю");
       return false;
     }
     if (state.hopper.worth <= 0.05) {
-      toast("Бункер пуст");
+      toast("Трюм пуст");
       return false;
     }
     if (state.launchLock > 0) return false;
@@ -915,10 +811,10 @@ import { createScene } from "./scene3d.js";
     state.launches += 1;
     state.launchLock = 0.7;
     if (!reduceMotion) shake = 8;
-    const d = nearestDepot(state.px, state.py).depot;
-    rockets.push({ x: d.x, y: d.y, age: 0, life: 1.25 });
-    burst(d.x, d.y, "#ffc857", 18, 90);
-    floater("+" + formatNumber(pay), d.x, d.y - 20, "#24183a");
+    const d = nearestDepot(state.pos).depot;
+    rockets.push({ x: d.x, y: d.y, z: d.z, age: 0, life: 2.4 });
+    burst(d, "#ffb089", 16, 3);
+    floater("+" + formatNumber(pay), d, "#3a2018");
     popMoney();
     save();
     updateUI();
@@ -928,25 +824,17 @@ import { createScene } from "./scene3d.js";
   function tryPlace() {
     if (uiBlocked()) return;
     if (state.depotStock <= 0) return;
-    const here = sectorIndexAt(state.px, state.py);
-    if (here == null) {
-      toast("На мостике приёмник не ставят");
-      return;
-    }
     for (const d of allDepots()) {
-      if (Math.hypot(d.x - state.px, d.y - state.py) < 170) {
-        toast("Слишком близко к другому приёмнику");
+      if (Planet.geodesic(state.pos, d) < 18) {
+        toast("Слишком близко к другому кораблю");
         return;
       }
     }
-    if (hitsBoulder(state.px, state.py)) {
-      toast("Здесь камень");
-      return;
-    }
-    state.placed.push({ x: state.px, y: state.py });
+    const spot = Planet.surface(state.pos);
+    state.placed.push({ x: spot.x, y: spot.y, z: spot.z });
     state.depotStock -= 1;
-    toast("Приёмник стоит");
-    burst(state.px, state.py, "#14b889", 14, 70);
+    toast("Посадочный модуль стоит");
+    burst(spot, "#ffb089", 12, 2);
     save();
     updateUI();
   }
@@ -971,7 +859,7 @@ function spend(cost, label) {
   state.money -= cost;
   toast("Куплено: " + label);
 popMoney();
-    burst(state.px, state.py, "#ffc857", 12, 80);
+    burst(state.pos, "#ffb089", 10, 2);
     return true;
 }
 
@@ -1049,7 +937,7 @@ function finishBuy() {
     }
     if (id.startsWith("robot:")) {
       if (robots.length >= ROBOT_CAP_TOTAL) {
-        toast("На дворе больше не помещается");
+        toast("Больше модулей не поставить");
         return false;
       }
       const rid = id.slice(6);
@@ -1058,15 +946,18 @@ function finishBuy() {
       const cost = Math.round(def.cost * def.growth ** robotCount(rid));
       if (!spend(cost, def.name)) return false;
       const home = homeDepot();
+      const spot = Planet.spawnNearHome(4 + Math.random() * 3);
       robots.push({
         type: rid,
-        x: home.x + (Math.random() - 0.5) * 30,
-        y: home.y + 24 + Math.random() * 20,
+        x: spot.x,
+        y: spot.y,
+        z: spot.z,
         mass: 0,
         worth: 0,
         mode: "seek",
         tx: home.x,
         ty: home.y,
+        tz: home.z,
         retarget: 0,
         stuck: 0,
       });
@@ -1108,19 +999,8 @@ function finishBuy() {
     if (!shopEl.classList.contains("hidden")) renderShop();
   }
 
-  function removeDustBulk(sector, mass) {
-    let total = 0;
-    const dust = sector.dust;
-    for (let i = 0; i < dust.length; i++) total += dust[i];
-    if (total <= 0 || mass <= 0) return 0;
-    const take = Math.min(mass, total);
-    const keep = (total - take) / total;
-    for (let i = 0; i < dust.length; i++) dust[i] *= keep;
-    return take;
-  }
-
   function simulateOffline(ms) {
-    if (!(ms > 5000)) return null;
+    if (!(ms > 5000) || !state.dust) return null;
     const capped = ms > MAX_OFFLINE + 800;
     let time = Math.min(ms, MAX_OFFLINE) / 1000;
     const rate = robots.reduce((sum, r) => sum + robotDef(r.type).rate, 0) * robotRateMul() * OFFLINE_EFF;
@@ -1128,27 +1008,17 @@ function finishBuy() {
     let earnedBase = 0;
     let massCleaned = 0;
     let guard = 0;
-    while (time > 0.05 && guard++ < 10000) {
-      let best = null;
-      let bestV = -1;
-      let remBest = 0;
-      for (const s of state.sectors) {
-        const rem = remaining(s);
-        if (rem < 1) continue;
-        const v = valueOf(s.index);
-        if (v > bestV) {
-          bestV = v;
-          best = s;
-          remBest = rem;
-        }
-      }
-      if (!best) break;
-      const dt = Math.min(time, remBest / rate);
-      const mass = removeDustBulk(best, rate * dt);
-      earnedBase += mass * valueOf(best.index) * 1.09;
-      massCleaned += mass;
+    while (time > 0.05 && guard++ < 20) {
+      const biome = Planet.bestDustyBiome(state.dust);
+      if (biome < 0) break;
+      const rem = Planet.biomeRemaining(state.dust, biome);
+      const dt = Math.min(time, rem / rate);
+      const cleaned = Planet.bulkClean(state.dust, biome, rate * dt);
+      earnedBase += cleaned.worth;
+      massCleaned += cleaned.mass;
       time -= dt;
     }
+    state.dust.stamp = (state.dust.stamp || 0) + 1;
     const earned = payout(earnedBase);
     if (earned < 0.5) return null;
     state.money += earned;
@@ -1160,9 +1030,9 @@ function finishBuy() {
 
   function serialize() {
     return {
-      v: 1,
-      cols: COLS,
-      rows: ROWS,
+      v: 2,
+      planet: "mars",
+      dustN: Planet.DUST_N,
       money: state.money,
       runCredits: state.runCredits,
       lifetime: state.lifetime,
@@ -1175,26 +1045,50 @@ function finishBuy() {
       battery: state.battery,
       depotBought: state.depotBought,
       depotStock: state.depotStock,
-      placed: state.placed.map((d) => ({ x: d.x, y: d.y })),
+      placed: state.placed.map((d) => ({ x: d.x, y: d.y, z: d.z })),
       vehicles: { ...state.vehicles },
       riding: state.riding,
       seenDust: state.seenDust ? 1 : 0,
       launches: state.launches,
       cleaned: state.cleaned,
-      px: state.px,
-      py: state.py,
+      pos: { ...state.pos },
+      heading: state.heading || 0,
+      discovered: { ...state.discovered },
+      dust: encodeBytes(quantizeDust(state.dust.amount)),
+      initial: Array.from(state.dust.initial),
       backpack: { mass: state.backpack.mass, worth: state.backpack.worth },
       hopper: { mass: state.hopper.mass, worth: state.hopper.worth },
-      sectors: state.sectors.map((s) => ({
-        index: s.index,
-        initial: s.initial,
-        dust: encodeF32(s.dust),
-      })),
       robots: robots.map((r) => ({
-        type: r.type, x: r.x, y: r.y, mass: r.mass, worth: r.worth, mode: r.mode,
+        type: r.type, x: r.x, y: r.y, z: r.z, mass: r.mass, worth: r.worth, mode: r.mode,
       })),
       lastSave: Date.now(),
     };
+  }
+
+  function quantizeDust(amount) {
+    const out = new Uint8Array(amount.length);
+    for (let i = 0; i < amount.length; i++) out[i] = Math.max(0, Math.min(255, Math.round(amount[i])));
+    return out;
+  }
+
+  function encodeBytes(u8) {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < u8.length; i += chunk) {
+      const sub = u8.subarray(i, Math.min(u8.length, i + chunk));
+      let part = "";
+      for (let j = 0; j < sub.length; j++) part += String.fromCharCode(sub[j]);
+      binary += part;
+    }
+    return btoa(binary);
+  }
+
+  function decodeBytes(b64, len) {
+    const binary = atob(b64);
+    if (binary.length !== len) throw new Error("dustlen");
+    const out = new Uint8Array(len);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i) & 255;
+    return out;
   }
 
   function save() {
@@ -1216,15 +1110,18 @@ function finishBuy() {
     for (const raw of list) {
       if (!raw || !ROBOTS.some((r) => r.id === raw.type)) continue;
       if (robots.length >= ROBOT_CAP_TOTAL) break;
+      const spot = Number.isFinite(raw.z) ? Planet.surface(raw) : Planet.spawnNearHome(4);
       robots.push({
         type: raw.type,
-        x: num(raw.x, home.x, -1e6, 1e7),
-        y: num(raw.y, home.y, -1e6, 1e7),
+        x: spot.x,
+        y: spot.y,
+        z: spot.z,
         mass: num(raw.mass, 0, 0),
         worth: num(raw.worth, 0, 0),
         mode: raw.mode === "dump" ? "dump" : "seek",
         tx: home.x,
         ty: home.y,
+        tz: home.z,
         retarget: 0,
         stuck: 0,
       });
@@ -1256,9 +1153,14 @@ function finishBuy() {
     state.placed = [];
     if (Array.isArray(data.placed)) {
       for (const d of data.placed) {
-        if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y)) continue;
-        state.placed.push({ x: d.x, y: d.y });
+        if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y) || !Number.isFinite(d.z)) continue;
+        const spot = Planet.surface(d);
+        state.placed.push({ x: spot.x, y: spot.y, z: spot.z });
       }
+    }
+    state.discovered = { plains: true };
+    if (data.discovered && typeof data.discovered === "object") {
+      for (const key of Object.keys(data.discovered)) state.discovered[key] = !!data.discovered[key];
     }
     const bag = data.backpack || {};
     const hop = data.hopper || {};
@@ -1275,23 +1177,59 @@ function finishBuy() {
       state.backpack.worth *= 1 - frac;
       state.backpack.mass = cap;
     }
-    if (!Array.isArray(data.sectors) || !data.sectors.length) throw new Error("sectors");
-    state.sectors = [];
-    for (const s of data.sectors) {
-      const dust = decodeF32(s.dust, COLS * ROWS);
-      const initial = num(s.initial, 1, 1);
-      state.sectors.push(createSector(state.sectors.length, dust, initial));
+    state.dust = Planet.createDust();
+    if (data.dust && data.dustN === Planet.DUST_N) {
+      const bytes = decodeBytes(data.dust, state.dust.amount.length);
+      for (let i = 0; i < bytes.length; i++) state.dust.amount[i] = bytes[i];
+      if (Array.isArray(data.initial) && data.initial.length === state.dust.initial.length) {
+        for (let i = 0; i < data.initial.length; i++) state.dust.initial[i] = num(data.initial[i], state.dust.initial[i], 1);
+      }
     }
+    state.dust.stamp = 1;
     loadRobots(data.robots);
     const sp = spawnPoint();
-    state.px = num(data.px, sp.x);
-    state.py = num(data.py, sp.y);
-    if (!inWalkable(state.px, state.py)) {
-      state.px = sp.x;
-      state.py = sp.y;
+    const loaded = data.pos && Number.isFinite(data.pos.x) ? Planet.surface(data.pos) : sp;
+    state.pos = { x: loaded.x, y: loaded.y, z: loaded.z };
+    state.heading = num(data.heading, 0.6, -Math.PI * 4, Math.PI * 4);
+  }
+
+  function migrateOldSave(data) {
+    applyFresh();
+    state.money = num(data.money, 0, 0, 1e300);
+    state.runCredits = num(data.runCredits, 0, 0, 1e300);
+    state.lifetime = num(data.lifetime, state.money, 0, 1e300);
+    state.patches = int(data.patches, 0, 500);
+    state.tool = int(data.tool, 0, TOOLS.length - 1);
+    state.polish = int(data.polish, 0, 400);
+    state.backpackLevel = int(data.backpackLevel, 0, 400);
+    state.speedLevel = int(data.speedLevel, 0, 400);
+    state.shipLevel = int(data.shipLevel, 0, 400);
+    state.battery = int(data.battery, 0, 400);
+    state.depotBought = int(data.depotBought, 0, DEPOT_CAP);
+    state.depotStock = int(data.depotStock, 0, DEPOT_CAP);
+    state.launches = int(data.launches, 0, 1e7);
+    state.cleaned = num(data.cleaned, 0, 0, 1e300);
+    if (data.vehicles && typeof data.vehicles === "object") {
+      for (const v of VEHICLES) if (data.vehicles[v.id]) state.vehicles[v.id] = true;
     }
-    cam.x = state.px;
-    cam.y = state.py;
+    const counts = {};
+    if (Array.isArray(data.robots)) {
+      for (const robot of data.robots) {
+        if (!robot || !robot.type) continue;
+        counts[robot.type] = (counts[robot.type] || 0) + 1;
+      }
+    }
+    const home = homeDepot();
+    for (const [type, count] of Object.entries(counts)) {
+      for (let i = 0; i < count && robots.length < ROBOT_CAP_TOTAL; i++) {
+        const spot = Planet.spawnNearHome(5 + i);
+        robots.push({
+          type, x: spot.x, y: spot.y, z: spot.z, mass: 0, worth: 0, mode: "seek",
+          tx: home.x, ty: home.y, tz: home.z, retarget: 0, stuck: 0,
+        });
+      }
+    }
+    return { migrated: true };
   }
 
   function load() {
@@ -1302,12 +1240,25 @@ function finishBuy() {
       return { storage: false };
     }
     if (!raw) {
+      let oldRaw = null;
+      try { oldRaw = localStorage.getItem(OLD_SAVE_KEY); } catch (err) { oldRaw = null; }
+      if (oldRaw) {
+        try {
+          const oldData = JSON.parse(oldRaw);
+          const migrated = migrateOldSave(oldData);
+          save();
+          return migrated;
+        } catch (err) {
+          applyFresh();
+          return null;
+        }
+      }
       applyFresh();
       return null;
     }
     try {
       const data = JSON.parse(raw);
-      if (!data || data.v !== 1 || data.cols !== COLS || data.rows !== ROWS) throw new Error("version");
+      if (!data || data.v !== 2 || data.planet !== "mars") throw new Error("version");
       applyFrom(data);
       const away = Date.now() - num(data.lastSave, Date.now());
       const report = simulateOffline(away);
@@ -1357,17 +1308,15 @@ function finishBuy() {
       setText(patchesEl, state.patches + " " + plural(state.patches, "нашивка", "нашивки", "нашивок"));
     } else patchesEl.hidden = true;
 
-    const loc = locationInfo();
-    const sector = state.sectors[loc.index];
-    const title = loc.bridge ? "Мостик" : sectorTitle(loc.index);
-    setText(sectorNameEl, title);
-    const rel = valueOf(loc.index) / valueOf(0);
-    setText(priceEl, "пыль ×" + formatNumber(rel));
-    const clean = sector ? cleanliness(sector) : 0;
+    const biome = Planet.biomeAt(state.pos);
+    const biomeIndex = Planet.BIOMES.findIndex((b) => b.id === biome.id);
+    setText(sectorNameEl, biome.name);
+    setText(priceEl, "пыль ×" + formatNumber(biome.price));
+    const clean = state.dust ? Planet.biomeClean(state.dust, biomeIndex) : 0;
     const pct = clean * 100;
     setText(sectorPctEl, (pct < 10 ? pct.toFixed(1) : String(Math.floor(pct))) + "%");
     sectorBar.style.width = (clean * 100).toFixed(1) + "%";
-    sectorBar.style.background = biomeOf(loc.index).accent;
+    sectorBar.style.background = biome.color;
 
     const cap = capacity();
     const mass = state.backpack.mass;
@@ -1376,16 +1325,16 @@ function finishBuy() {
     packBar.style.width = (frac * 100).toFixed(1) + "%";
     packBar.style.background = frac > 0.92 ? "#ff6b6b" : frac > 0.62 ? "#ffc857" : "#14b889";
 
-    if (!state.seenDust) hintEl.textContent = "Веди дворника по серой пыли. Чистая земля проявится под ней.";
-    else if (state.nearDepot && state.backpack.mass > 1) hintEl.textContent = "Выгружаем пыль в общий бункер…";
-    else if (state.nearDepot && state.hopper.worth > 1) hintEl.textContent = "Бункер ждёт. Запускай рейс.";
-    else if (frac > 0.97) hintEl.textContent = "Рюкзак полон. Неси к зелёному кругу.";
+    if (!state.seenDust) hintEl.textContent = "Иди по ржавой пыли. Под ней проступит марсианский грунт.";
+    else if (state.nearDepot && state.backpack.mass > 1) hintEl.textContent = "Пыль едет по рампе в трюм…";
+    else if (state.nearDepot && state.hopper.worth > 1) hintEl.textContent = "Трюм ждёт. Запускай корабль.";
+    else if (frac > 0.97) hintEl.textContent = "Рюкзак полон. Неси к кораблю.";
     else if (state.riding) hintEl.textContent = "За рулём: " + vehicleById(state.riding).name;
     else hintEl.textContent = "В руках: " + TOOLS[state.tool].name;
 
     const canLaunch = state.nearDepot && state.hopper.worth > 0.05 && state.launchLock <= 0;
     launchBtn.disabled = !canLaunch;
-    launchLabel.textContent = state.hopper.worth > 0.05 && !state.nearDepot ? "Рейс у приёмника" : "Запустить рейс";
+    launchLabel.textContent = state.hopper.worth > 0.05 && !state.nearDepot ? "Рейс у корабля" : "Запустить рейс";
 
     placeBtn.hidden = state.depotStock <= 0;
     placeBtn.textContent = "Поставить (" + state.depotStock + ")";
@@ -1406,7 +1355,7 @@ function finishBuy() {
   }
 
   function renderStrip() {
-    const count = state.sectors.length + 1;
+    const count = Planet.BIOMES.length;
     if (stripEl.childElementCount !== count) {
       stripEl.replaceChildren();
       for (let i = 0; i < count; i++) {
@@ -1415,19 +1364,17 @@ function finishBuy() {
         stripEl.appendChild(el);
       }
     }
-    const here = sectorIndexAt(state.px, state.py);
+    const here = Planet.biomeAt(state.pos).id;
     const kids = stripEl.children;
-    for (let i = 0; i < kids.length; i++) {
-      const locked = i >= state.sectors.length;
-      const name = locked ? "дальше" : biomeOf(i).short;
+    Planet.BIOMES.forEach((biome, i) => {
+      const known = state.discovered && state.discovered[biome.id];
+      const name = known ? biome.short : "···";
       if (kids[i].textContent !== name) kids[i].textContent = name;
-      kids[i].className = "chip" + (locked ? " locked" : "") + (here === i ? " here" : "");
-      kids[i].title = sectorTitle(i);
-    }
-    if (here !== lastHere && here != null && kids[here]) {
-      lastHere = here;
-      kids[here].scrollIntoView({ inline: "center", block: "nearest" });
-    }
+      kids[i].className = "chip" + (known ? "" : " locked") + (here === biome.id ? " here" : "");
+      kids[i].title = known ? biome.name : "Ещё не дошли";
+      if (here === biome.id && lastHere !== here) kids[i].scrollIntoView({ inline: "center", block: "nearest" });
+    });
+    lastHere = here;
   }
 
   function row(title, text, meta, buttonHtml) {
@@ -1502,7 +1449,7 @@ function finishBuy() {
     return [
       row(
         "Рюкзак",
-        "Больше пыли за одну ходку до приёмника.",
+        "Больше пыли за одну ходку до корабля.",
         `вместимость ${formatNumber(capacityAt(state.backpackLevel))} → ${formatNumber(capacityAt(state.backpackLevel + 1))}`,
         buyBtn("backpack", formatNumber(bCost), canAfford(bCost)),
       ),
@@ -1514,7 +1461,7 @@ function finishBuy() {
       ),
       row(
         "Тариф рейса",
-        "Бункер платит щедрее за ту же пыль.",
+        "Корабль платит щедрее за ту же пыль.",
         `оплата +${state.shipLevel * 8}% → +${(state.shipLevel + 1) * 8}%`,
         buyBtn("ship", formatNumber(tCost), canAfford(tCost)),
       ),
@@ -1529,12 +1476,12 @@ function finishBuy() {
       else html += row(v.name, v.blurb, meta, buyBtn("vehicle:" + v.id, formatNumber(v.cost), canAfford(v.cost)));
     }
     if (state.depotBought >= DEPOT_CAP) {
-      html += row("Запасной приёмник", "Ставь ближе к пыли, чтобы меньше носить.", "лимит посёлка", badge("лимит"));
+      html += row("Запасной модуль", "Ставь ближе к пыли, чтобы меньше носить.", "лимит станции", badge("лимит"));
     } else {
       const cost = depotPrice(state.depotBought);
       html += row(
-        "Запасной приёмник",
-        "Купи, потом встань на участок и нажми «Поставить». Общий бункер один на весь посёлок.",
+        "Запасной модуль",
+        "Купи, потом встань на грунт и нажми «Поставить». Трюм один на всю станцию.",
         `в запасе: ${state.depotStock} · поставлено: ${state.placed.length}`,
         buyBtn("depot", formatNumber(cost), canAfford(cost)),
       );
@@ -1548,7 +1495,7 @@ function finishBuy() {
     for (const def of ROBOTS) {
       const owned = robotCount(def.id);
       const cost = Math.round(def.cost * def.growth ** owned);
-      const meta = `на дворе: ${owned} · каждый ${formatNumber(def.rate * mul)}/с`;
+      const meta = `на планете: ${owned} · каждый ${formatNumber(def.rate * mul)}/с`;
       const label = robots.length >= ROBOT_CAP_TOTAL ? "лимит" : formatNumber(cost);
       const ok = robots.length < ROBOT_CAP_TOTAL && canAfford(cost);
       html += row(def.name, def.blurb, meta, robots.length >= ROBOT_CAP_TOTAL ? badge("лимит") : buyBtn("robot:" + def.id, label, ok));
@@ -1560,7 +1507,7 @@ function finishBuy() {
       `скорость роботов +${state.battery * 12}% → +${(state.battery + 1) * 12}%`,
       buyBtn("battery", formatNumber(cost), canAfford(cost)),
     );
-    html += `<div class="shift-copy"><p>Роботы сами носят пыль в бункер. Рейс запускаешь ты. Пока игра закрыта, они отправляют рейс сами, но не открывают новые участки и работают примерно вполсилы.</p></div>`;
+    html += `<div class="shift-copy"><p>Роботы сами носят пыль в трюм. Рейс запускаешь ты. Пока игра закрыта, они отправляют рейс сами, но не открывают новые края и работают примерно вполсилы.</p></div>`;
     return html;
   }
 
@@ -1571,12 +1518,12 @@ function finishBuy() {
       `<div class="shift-copy">`,
       `<p><strong>Нашивки:</strong> ${state.patches}. Рейс ×${formatNumber(1 + state.patches * 0.4)}, уборка +${Math.round(state.patches * 12)}%.</p>`,
       `<p>Кредиты этой смены: ${formatNumber(state.runCredits)}. Следующая нашивка стоит ${formatNumber(next)}.</p>`,
-      `<p>Эта смена даст нашивок: ${gain}. Новая смена стирает кредиты, инструменты, рюкзак, технику, роботов и участки. Нашивки остаются и усиливают следующую.</p>`,
+      `<p>Эта смена даст нашивок: ${gain}. Новая смена стирает кредиты, инструменты, рюкзак, технику, роботов и открытые края. Нашивки остаются и усиливают следующую.</p>`,
       `<p>Сметено за всё время: ${formatNumber(state.cleaned)}. Рейсов: ${state.launches}.</p>`,
       `</div>`,
       row(
         "Новая смена",
-        "Сдать двор и начать сначала, но уже с нашивками на куртке.",
+        "Сдать планету и начать сначала, но уже с нашивками на куртке.",
         gain > 0 ? `получишь ${gain} ${plural(gain, "нашивку", "нашивки", "нашивок")}` : "пока рано",
         buyBtn("prestige", gain > 0 ? "Сдать смену" : "Рано", gain > 0),
       ),
@@ -1661,7 +1608,7 @@ function finishBuy() {
       title: "Новая смена?",
       lines: [
         `Получишь ${gain} ${plural(gain, "нашивку", "нашивки", "нашивок")}.`,
-        "Пропадут кредиты, инструменты, рюкзак, техника, роботы и открытые участки.",
+        "Пропадут кредиты, инструменты, рюкзак, техника, роботы и открытые края.",
         "Нашивки останутся и усилят оплату рейсов.",
       ],
       actions: [
@@ -1674,7 +1621,7 @@ function finishBuy() {
   function openResetConfirm() {
     openModal({
       title: "Стереть сохранение?",
-      lines: ["Пропадут участки, кредиты, роботы и нашивки. Вернуть это нельзя."],
+      lines: ["Пропадут края, кредиты, роботы и нашивки. Вернуть это нельзя."],
       actions: [
         { label: "Отмена" },
         { label: "Стереть", danger: true, onClick: hardReset },
@@ -1709,7 +1656,7 @@ function finishBuy() {
     if (!sceneApi || !state) return;
     sceneApi.render({
       state,
-      cfg: { biomeOf, sectorOrigin, STRIDE, allDepots },
+      depots: allDepots(),
       robots,
       particles,
       floaters,
@@ -1725,32 +1672,26 @@ function finishBuy() {
   }
 
   function findDust() {
-    const sector = state.sectors[0];
-    const origin = sectorOrigin(0);
     let best = 0;
-    let bi = 0;
-    for (let i = 0; i < sector.dust.length; i++) {
-      if (sector.dust[i] <= best) continue;
-      const col = i % COLS;
-      const row = (i / COLS) | 0;
-      const x = origin.x + (col + 0.5) * TILE;
-      const y = origin.y + (row + 0.5) * TILE;
-      if (hitsBoulder(x, y)) continue;
-      best = sector.dust[i];
-      bi = i;
+    let index = 0;
+    const data = state.dust.amount;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] > best) {
+        best = data[i];
+        index = i;
+      }
     }
-    const col = bi % COLS;
-    const row = (bi / COLS) | 0;
-    return {
-      x: origin.x + (col + 0.5) * TILE,
-      y: origin.y + (row + 0.5) * TILE,
-      dust: best,
-    };
+    const spot = Planet.surface({
+      x: Planet.cellDir[index * 3],
+      y: Planet.cellDir[index * 3 + 1],
+      z: Planet.cellDir[index * 3 + 2],
+    });
+    return { x: spot.x, y: spot.y, z: spot.z, dust: best };
   }
 
   function snapshot() {
-    const s0 = state.sectors[0];
     const d = homeDepot();
+    const plains = Planet.BIOMES.findIndex((b) => b.id === "plains");
     return {
       money: state.money,
       patches: state.patches,
@@ -1759,12 +1700,13 @@ function finishBuy() {
       backpackLevel: state.backpackLevel,
       backpack: { mass: state.backpack.mass, worth: state.backpack.worth, cap: capacity() },
       hopper: { mass: state.hopper.mass, worth: state.hopper.worth },
-      remaining0: remaining(s0),
-      clean0: cleanliness(s0),
-      px: state.px,
-      py: state.py,
-      depot: { x: d.x, y: d.y },
-      unlocked: state.sectors.length,
+      remaining0: state.dust ? Planet.totalRemaining(state.dust) : 0,
+      clean0: state.dust ? 1 - Planet.totalRemaining(state.dust) / state.dust.amount.length : 0,
+      px: state.pos.x,
+      py: state.pos.y,
+      pz: state.pos.z,
+      depot: { x: d.x, y: d.y, z: d.z },
+      unlocked: Object.keys(state.discovered || {}).length,
       runCredits: state.runCredits,
       robots: robots.length,
       nearDepot: state.nearDepot,
@@ -1883,6 +1825,7 @@ function finishBuy() {
     sceneApi = await createScene(canvas);
     resize();
     if (report && report.corrupt) toast("Сохранение повреждено — начали заново");
+    else if (report && report.migrated) toast("Лунный двор остался в памяти. Снаряжение переехало на Марс.");
     else if (report && report.storage === false) toast("Память браузера недоступна, игра только на этот раз");
     else if (report && report.earned > 0.5) showOffline(report);
 
@@ -1891,11 +1834,9 @@ function finishBuy() {
       modelsLoaded: true,
       format: formatNumber,
       tick(dt) { update(dt); },
-      teleport(x, y) {
-        state.px = x;
-        state.py = y;
-        cam.x = x;
-        cam.y = y;
+      teleport(x, y, z) {
+        const spot = Planet.surface({ x, y, z: z || 0 });
+        state.pos = { x: spot.x, y: spot.y, z: spot.z };
       },
       setMove(x, y) { stick.manual = { x, y }; },
       clearMove() { stick.manual = null; },
@@ -1916,6 +1857,7 @@ function finishBuy() {
         setMoney(n) { state.money = n; updateUI(); if (!shopEl.classList.contains("hidden")) renderShop(); },
         setRunCredits(n) { state.runCredits = n; updateUI(); if (!shopEl.classList.contains("hidden")) renderShop(); },
         holdSave(on) { savesEnabled = !!on; },
+        overview(on) { state.overview = !!on; },
       },
     };
 
@@ -1923,8 +1865,15 @@ function finishBuy() {
     const loop = (now) => {
       const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
       last = now;
-      update(dt);
-      render();
+      try {
+        update(dt);
+        render();
+      } catch (err) {
+        if (!loop.reported) {
+          loop.reported = true;
+          console.error(err);
+        }
+      }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);

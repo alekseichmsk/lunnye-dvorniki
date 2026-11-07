@@ -324,14 +324,16 @@ def build_tool_vac(stem, body_color, scale=1.0, hose=True):
     white = material("white", C["white"])
     cyan = material("cyan", C["cyan"], 0.25, emit=0.2)
     root = empty(stem)
-    body = cube("body", body_m, (0.32 * scale, 0.22 * scale, 0.34 * scale), (0, 0, 0.22 * scale))
-    cap = sphere("cap", white, 0.1 * scale, (0, 0, 0.4 * scale), 8, 5)
-    nozzle = cone("nozzle", ink, 0.07 * scale, 0.16 * scale, (0, 0.16 * scale, 0.18 * scale), 8, rot=(math.radians(100), 0, 0))
-    parts = [body, cap, nozzle]
+    body = cube("body", body_m, (0.34 * scale, 0.26 * scale, 0.36 * scale), (0, 0, 0.28 * scale))
+    cap = sphere("cap", white, 0.11 * scale, (0, 0, 0.48 * scale), 10, 6)
+    nozzle = cylinder("nozzle", ink, 0.045 * scale, 0.22 * scale, (0, 0.2 * scale, 0.22 * scale), 10, rot=(math.radians(78), 0, 0))
+    mouth = cone("mouth", cyan, 0.07 * scale, 0.1 * scale, (0, 0.32 * scale, 0.16 * scale), 10, rot=(math.radians(78), 0, 0))
+    parts = [body, cap, nozzle, mouth]
     if hose:
-        hose_mesh = cylinder("hose", ink, 0.03 * scale, 0.22 * scale, (0.16 * scale, 0.02, 0.28 * scale), 8, rot=(0, math.radians(70), 0))
-        parts.append(hose_mesh)
-    light = sphere("lamp", cyan, 0.045 * scale, (0, 0.12 * scale, 0.24 * scale), 6, 4)
+        hose_a = cylinder("hose_a", ink, 0.028 * scale, 0.16 * scale, (0.12 * scale, 0.02, 0.36 * scale), 8, rot=(0, math.radians(80), math.radians(20)))
+        hose_b = cylinder("hose_b", ink, 0.026 * scale, 0.16 * scale, (0.08 * scale, 0.12 * scale, 0.26 * scale), 8, rot=(math.radians(55), 0, math.radians(18)))
+        parts.extend((hose_a, hose_b))
+    light = sphere("lamp", cyan, 0.04 * scale, (0, 0.14 * scale, 0.32 * scale), 8, 5)
     parts.append(light)
     link_children(root, parts)
     export_root(root, stem)
@@ -723,6 +725,55 @@ def build_hut():
     export_root(root, "prop_hut")
 
 
+def build_ship(stem, scale=1.0, legs=4):
+    fresh()
+    hull_m = material("hull", (0.93, 0.94, 0.96, 1), 0.42)
+    belly = material("belly", (0.75, 0.32, 0.22, 1), 0.5)
+    ink = material("ink", C["ink"], 0.55)
+    glass = material("glass", C["cyan"], 0.12, emit=0.45)
+    gold = material("gold", C["gold"], 0.35, emit=0.9)
+    coral = material("coral", C["scarf"], 0.4)
+    root = empty(stem)
+    body = sphere("hull", hull_m, 0.82 * scale, (0, 0.05 * scale, 1.22 * scale), 14, 9, (1.05, 1.55, 0.5))
+    stripe = cube("stripe", belly, (1.55 * scale, 2.15 * scale, 0.16 * scale), (0, 0.05 * scale, 0.95 * scale))
+    cabin = sphere("cabin", glass, 0.34 * scale, (0, 0.55 * scale, 1.62 * scale), 12, 8, (1.05, 1.25, 0.62))
+    window_l = cube("window_l", glass, (0.12 * scale, 0.42 * scale, 0.22 * scale), (-0.78 * scale, 0.15 * scale, 1.28 * scale))
+    window_r = cube("window_r", glass, (0.12 * scale, 0.42 * scale, 0.22 * scale), (0.78 * scale, 0.15 * scale, 1.28 * scale))
+    bay = cube("cargo_bay", ink, (0.85 * scale, 0.55 * scale, 0.48 * scale), (0, -0.95 * scale, 1.05 * scale))
+    ramp = cube("ramp", belly, (0.72 * scale, 1.15 * scale, 0.08 * scale), (0, -1.55 * scale, 0.48 * scale))
+    ramp.rotation_euler = (math.radians(28), 0, 0)
+    apply_transform(ramp)
+    parts = [body, stripe, cabin, window_l, window_r, bay, ramp]
+    for i in range(legs):
+        ang = (i / legs) * math.tau + 0.4
+        fx = math.cos(ang) * 1.15 * scale
+        fy = math.sin(ang) * 1.55 * scale
+        leg = cylinder(f"leg_{i}", ink, 0.055 * scale, 0.95 * scale, (fx * 0.85, fy * 0.72, 0.48 * scale), 7, rot=(math.radians(24 * math.sin(ang)), 0, math.radians(24 * math.cos(ang))))
+        foot = cylinder(f"foot_{i}", coral, 0.18 * scale, 0.07 * scale, (fx * 0.98, fy * 0.82, 0.05 * scale), 8)
+        parent_to(foot, leg)
+        parts.append(leg)
+    engine_l = cylinder("engine_l", ink, 0.2 * scale, 0.48 * scale, (-0.48 * scale, -1.15 * scale, 0.95 * scale), 12)
+    engine_r = cylinder("engine_r", ink, 0.2 * scale, 0.48 * scale, (0.48 * scale, -1.15 * scale, 0.95 * scale), 12)
+    flame_l = cone("flame_l", gold, 0.14 * scale, 0.36 * scale, (-0.48 * scale, -1.15 * scale, 0.58 * scale), 10, rot=(math.radians(180), 0, 0))
+    flame_r = cone("flame_r", gold, 0.14 * scale, 0.36 * scale, (0.48 * scale, -1.15 * scale, 0.58 * scale), 10, rot=(math.radians(180), 0, 0))
+    antenna = cylinder("antenna", ink, 0.02 * scale, 0.7 * scale, (0.35 * scale, 0.2 * scale, 2.05 * scale), 6)
+    dish = sphere("dish", hull_m, 0.16 * scale, (0.35 * scale, 0.28 * scale, 2.35 * scale), 8, 5, (1, 1, 0.35))
+    light_a = sphere("light_a", gold, 0.06 * scale, (0, 1.55 * scale, 1.15 * scale), 8, 4)
+    light_b = sphere("light_b", coral, 0.05 * scale, (-0.9 * scale, -0.2 * scale, 1.35 * scale), 8, 4)
+    light_c = sphere("light_c", coral, 0.05 * scale, (0.9 * scale, -0.2 * scale, 1.35 * scale), 8, 4)
+    parts.extend((engine_l, engine_r, flame_l, flame_r, antenna, dish, light_a, light_b, light_c))
+    link_children(root, parts)
+    export_root(root, stem)
+
+
+def build_mars_ship():
+    build_ship("ship", 1.05, 4)
+
+
+def build_lander():
+    build_ship("lander", 0.62, 3)
+
+
 def main():
     # Character, vehicles, robots and most props come from the CC0 Kenney kit
     # via blender/import_cc0.py. These stay custom because no suitable CC0 model exists.
@@ -739,6 +790,8 @@ def main():
         build_tool_comet,
         build_tool_aurora,
         build_rocket,
+        build_mars_ship,
+        build_lander,
         build_drone,
         build_flag,
         build_cactus,

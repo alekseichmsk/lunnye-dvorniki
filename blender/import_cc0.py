@@ -335,7 +335,7 @@ def main():
     build_janitor()
     build_vehicle("rover.glb", "vehicle_pyh", {
         "metal": YELLOW, "metalRed": CORAL, "metalDark": INK, "dark": INK,
-    }, 1.15, 0.08)
+    }, 1.15, 0)
     build_vehicle("craft_miner.glb", "vehicle_blin", {
         "metal": PINK, "metalRed": WHITE, "metalDark": INK, "dark": INK,
     }, 1.05, 0.16)

@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffc857">
-  <meta name="description" content="Лунные дворники — мети пыль в посёлке «Тихая осыпь», относи на приёмник и отправляй рейсы.">
-  <title>Лунные дворники</title>
+  <meta name="theme-color" content="#e07a45">
+  <meta name="description" content="Марсианские дворники — мети ржавую пыль, относи её на корабль и запускай рейс.">
+  <title>Марсианские дворники</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
@@ -23,8 +23,8 @@
       <div class="brand">
         <img src="assets/helmet.svg" width="40" height="40" alt="">
         <div>
-          <h1>Лунные дворники</h1>
-          <p class="tagline">посёлок «Тихая осыпь»</p>
+          <h1>Марсианские дворники</h1>
+          <p class="tagline">станция «Ржавый берег»</p>
         </div>
       </div>
       <div class="purse">
@@ -36,15 +36,15 @@
     </header>
 
     <div class="loc-row">
-      <span id="sector-name">Двор у шлюза</span>
+      <span id="sector-name">Ржавые равнины</span>
       <span id="price">пыль ×1</span>
       <span id="sector-pct">0%</span>
     </div>
     <div class="bar thick" aria-hidden="true"><div id="sector-bar"></div></div>
-    <div id="strip" class="strip" aria-label="Участки"></div>
+    <div id="strip" class="strip" aria-label="Края Марса"></div>
 
     <main id="stage">
-      <canvas id="view" aria-label="Дворы посёлка Тихая осыпь"></canvas>
+      <canvas id="view" aria-label="Поверхность Марса"></canvas>
       <div id="toast" role="status"></div>
       <div id="banner" role="status"></div>
     </main>
@@ -62,7 +62,7 @@
         <div id="knob" class="knob"></div>
       </div>
       <div class="actions">
-        <p id="hint" class="hint">Веди дворника по серой пыли. Чистая земля проявится под ней.</p>
+        <p id="hint" class="hint">Иди по ржавой пыли. Под ней проступит марсианский грунт.</p>
         <div class="action-row">
           <button id="place" type="button" class="ghost" hidden>Поставить</button>
           <button id="ride" type="button" class="ghost" hidden>Сесть</button>
