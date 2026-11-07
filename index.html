@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffc857">
+  <meta name="description" content="Лунные дворники — мети пыль в посёлке «Тихая осыпь», относи на приёмник и отправляй рейсы.">
+  <title>Лунные дворники</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <div class="brand">
+        <img src="assets/helmet.svg" width="40" height="40" alt="">
+        <div>
+          <h1>Лунные дворники</h1>
+          <p class="tagline">посёлок «Тихая осыпь»</p>
+        </div>
+      </div>
+      <div class="purse">
+        <span class="label">кредиты</span>
+        <strong id="money">0</strong>
+        <span id="mul" class="mul"></span>
+        <span id="patches" class="patches" hidden></span>
+      </div>
+    </header>
+
+    <div class="loc-row">
+      <span id="sector-name">Двор у шлюза</span>
+      <span id="price">пыль ×1</span>
+      <span id="sector-pct">0%</span>
+    </div>
+    <div class="bar thick" aria-hidden="true"><div id="sector-bar"></div></div>
+    <div id="strip" class="strip" aria-label="Участки"></div>
+
+    <main id="stage">
+      <canvas id="view" aria-label="Дворы посёлка Тихая осыпь"></canvas>
+      <div id="toast" role="status"></div>
+      <div id="banner" role="status"></div>
+    </main>
+
+    <div class="pack">
+      <div class="pack-top">
+        <span><img src="assets/icon-pack.svg" width="16" height="16" alt=""> Рюкзак</span>
+        <span id="pack-label">0 / 1K</span>
+      </div>
+      <div class="bar" aria-hidden="true"><div id="pack-bar"></div></div>
+    </div>
+
+    <section class="dock">
+      <div id="stick" class="stick" aria-hidden="true">
+        <div id="knob" class="knob"></div>
+      </div>
+      <div class="actions">
+        <p id="hint" class="hint">Веди дворника по серой пыли. Чистая земля проявится под ней.</p>
+        <div class="action-row">
+          <button id="place" type="button" class="ghost" hidden>Поставить</button>
+          <button id="ride" type="button" class="ghost" hidden>Сесть</button>
+          <button id="launch" type="button" disabled>
+            <img src="assets/icon-rocket.svg" width="18" height="18" alt="">
+            <span id="launch-label">Запустить рейс</span>
+          </button>
+          <button id="shop-open" type="button" class="sun">Магазин</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="shop" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="shop-title">
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="shop-title">Магазин посёлка</h2>
+        <button id="shop-close" type="button" class="icon-btn" aria-label="Закрыть">×</button>
+      </div>
+      <p id="shop-summary" class="summary"></p>
+      <div id="tabs" class="tabs"></div>
+      <div id="shop-body" class="shop-body"></div>
+      <div class="sheet-foot">
+        <span class="keys">WASD или стрелки · E магазин · пробел рейс</span>
+        <button id="reset" type="button" class="text-danger">Стереть сохранение</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <div id="modal-actions" class="modal-actions"></div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
